@@ -1,4 +1,14 @@
-import type { AppState, AuthStatus, EditalInput, Papel, Unchanged } from '../shared'
+import type { AppState, AuthStatus, EditalInput, Papel, RegrasCampos, Unchanged } from '../shared'
+
+export interface PortalInput {
+  nome: string
+  campos: RegrasCampos
+}
+
+export interface CategoriaInput {
+  nome: string
+  cor: string
+}
 
 export class ApiError extends Error {
   status: number
@@ -14,12 +24,15 @@ export interface NewUser {
   cargo: string
   senha: string
   papel: Papel
+  /** ids dos portais liberados; null = todos */
+  portais: number[] | null
 }
 
 export interface UserPatch {
   nome: string
   cargo: string
   papel: Papel
+  portais: number[] | null
   /** só enviar para redefinir a senha */
   senha?: string
 }
@@ -61,6 +74,20 @@ export const api = {
   createUser: (v: NewUser) => req<AppState>('/api/users', 'POST', v),
   updateUser: (id: number, v: UserPatch) => req<AppState>(`/api/users/${id}`, 'PUT', v),
   deleteUser: (id: number) => req<AppState>(`/api/users/${id}`, 'DELETE'),
+
+  // portais e categorias (administrador)
+  createPortal: (v: PortalInput) => req<AppState>('/api/portais', 'POST', v),
+  updatePortal: (id: number, v: PortalInput) => req<AppState>(`/api/portais/${id}`, 'PUT', v),
+  deletePortal: (id: number) => req<AppState>(`/api/portais/${id}`, 'DELETE'),
+  createCategoria: (v: CategoriaInput) => req<AppState>('/api/categorias', 'POST', v),
+  updateCategoria: (id: string, v: CategoriaInput) => req<AppState>(`/api/categorias/${encodeURIComponent(id)}`, 'PUT', v),
+  deleteCategoria: (id: string) => req<AppState>(`/api/categorias/${encodeURIComponent(id)}`, 'DELETE'),
+
+  reordenarCategorias: (ids: string[]) => req<AppState>('/api/categorias/ordem', 'POST', { ids }),
+  reordenarStatus: (ids: string[]) => req<AppState>('/api/status/ordem', 'POST', { ids }),
+  createStatus: (v: CategoriaInput) => req<AppState>('/api/status', 'POST', v),
+  updateStatus: (id: string, v: CategoriaInput) => req<AppState>(`/api/status/${encodeURIComponent(id)}`, 'PUT', v),
+  deleteStatus: (id: string) => req<AppState>(`/api/status/${encodeURIComponent(id)}`, 'DELETE'),
 
   // editais
   createEdital: (e: EditalInput) => req<AppState>('/api/editais', 'POST', e),

@@ -1,8 +1,8 @@
-export type Nav = 'dashboard' | 'TINTAS' | 'PNEUS' | 'RETIF' | 'novo' | 'calendario' | 'relatorio' | 'usuarios' | 'config'
+export type Nav = 'dashboard' | 'editais' | 'RETIF' | 'novo' | 'calendario' | 'relatorio' | 'usuarios' | 'portais' | 'configuracoes' | 'perfil'
 
 interface Props {
   nav: Nav
-  counts: { tintas: number; pneus: number; retif: number }
+  counts: { all: number; retif: number }
   isAdmin: boolean
   onNav: (n: Nav) => void
 }
@@ -18,8 +18,7 @@ interface Item {
 export default function Sidebar({ nav, counts, isAdmin, onNav }: Props) {
   const main: Item[] = [
     { id: 'dashboard', icon: 'dashboard', label: 'Visão Geral' },
-    { id: 'TINTAS', icon: 'format_paint', label: 'Editais de Tintas', count: counts.tintas },
-    { id: 'PNEUS', icon: 'tire_repair', label: 'Editais de Pneus', count: counts.pneus },
+    { id: 'editais', icon: 'description', label: 'Editais', count: counts.all },
     { id: 'RETIF', icon: 'published_with_changes', label: 'Retificações', count: counts.retif, danger: true },
     { id: 'novo', icon: 'post_add', label: 'Registro de Editais' },
     { id: 'calendario', icon: 'calendar_clock', label: 'Calendário & Prazos' },
@@ -55,7 +54,7 @@ export default function Sidebar({ nav, counts, isAdmin, onNav }: Props) {
   }
 
   return (
-    <aside className="fixed left-0 top-0 z-50 flex h-full w-64 select-none flex-col justify-between bg-surface-container-lowest shadow-[0_1px_8px_rgba(0,0,0,0.04)]">
+    <aside className="fixed left-0 top-0 z-50 flex h-full w-64 select-none flex-col justify-between overflow-y-auto bg-surface-container-lowest shadow-[0_1px_8px_rgba(0,0,0,0.04)]">
       <div className="flex flex-col">
         <div className="flex h-16 items-center gap-space-sm px-margin">
           <div className="flex h-8 w-8 items-center justify-center rounded bg-primary font-bold text-on-primary">EC</div>
@@ -71,8 +70,10 @@ export default function Sidebar({ nav, counts, isAdmin, onNav }: Props) {
       </div>
       <div className="flex flex-col gap-space-sm p-space-md">
         <nav className="flex flex-col gap-1">
+          {isAdmin && link({ id: 'portais', icon: 'language', label: 'Portais' })}
+          {isAdmin && link({ id: 'configuracoes', icon: 'settings', label: 'Configurações' })}
           {isAdmin && link({ id: 'usuarios', icon: 'group', label: 'Usuários' })}
-          {link({ id: 'config', icon: 'settings', label: 'Meu perfil e senha' })}
+          {link({ id: 'perfil', icon: 'manage_accounts', label: 'Meu perfil e senha' })}
         </nav>
         <div className="flex items-center gap-space-sm rounded-lg bg-surface-container-low p-space-sm">
           <span className="h-2 w-2 animate-pulse rounded-full bg-secondary" />

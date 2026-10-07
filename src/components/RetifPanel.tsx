@@ -1,12 +1,14 @@
-import type { Edital, Retif } from '../shared'
+import type { CategoriaCfg, Edital, Retif } from '../shared'
+import { catInfo, fmtTs } from '../lib/utils'
 
 interface Props {
   editais: Edital[]
+  categorias: CategoriaCfg[]
   onNew: () => void
   onHist: (id: number) => void
 }
 
-export default function RetifPanel({ editais, onNew, onHist }: Props) {
+export default function RetifPanel({ editais, categorias, onNew, onHist }: Props) {
   const all: Array<Retif & { ed: Edital }> = editais
     .flatMap((ed) => ed.retifs.map((r) => ({ ...r, ed })))
     .sort((a, b) => b.ts - a.ts)
@@ -51,11 +53,10 @@ export default function RetifPanel({ editais, onNew, onHist }: Props) {
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-1.5">
                   <span
-                    className={`rounded px-1.5 font-label-sm text-label-sm font-bold ${
-                      r.ed.cat === 'PNEUS' ? 'bg-[#fef3c7] text-[#b45309]' : 'bg-[#e0f2fe] text-[#0369a1]'
-                    }`}
+                    className="rounded px-1.5 font-label-sm text-label-sm font-bold"
+                    style={{ background: `${catInfo(categorias, r.ed.cat).cor}22`, color: catInfo(categorias, r.ed.cat).cor }}
                   >
-                    {r.ed.cat}
+                    {catInfo(categorias, r.ed.cat).nome}
                   </span>
                   <span className="font-label-md text-label-md font-bold text-primary">{r.ed.num}</span>
                 </div>
@@ -73,7 +74,7 @@ export default function RetifPanel({ editais, onNew, onHist }: Props) {
               <div className="flex items-center justify-between border-t border-surface-container-high/60 pt-1 text-[11px] text-outline">
                 <span>
                   Registrado:{' '}
-                  {new Date(r.ts).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                  {fmtTs(r.ts)}
                   {r.por ? ` por ${r.por}` : ''}
                 </span>
                 <button type="button" onClick={() => onHist(r.ed.id)} className="font-semibold text-primary hover:underline">

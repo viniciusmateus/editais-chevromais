@@ -10,6 +10,7 @@ import RegionPanel from './components/RegionPanel'
 import RetifPanel from './components/RetifPanel'
 import EditalTable, { type Tab } from './components/EditalTable'
 import { EditalModal, HistModal, ProfileModal, ReportModal, RetifModal, UsersModal } from './components/Modals'
+import { ConfigModal, PortaisModal } from './components/Admin'
 
 type ModalState =
   | { type: 'edital'; id?: number; v?: number }
@@ -18,6 +19,8 @@ type ModalState =
   | { type: 'report' }
   | { type: 'profile' }
   | { type: 'users' }
+  | { type: 'portais' }
+  | { type: 'config' }
   | null
 
 const POLL_MS = 4000
@@ -103,6 +106,14 @@ export default function Dashboard({ onLogout }: { onLogout: () => void }) {
 
   useEffect(() => setPage(1), [tab, fCat, fPer, fStatus, q])
 
+  // categoria excluída (por este ou outro usuário) enquanto estava selecionada num filtro/aba: volta para "todas"
+  useEffect(() => {
+    if (!state) return
+    const existe = (id: string) => state.categorias.some((c) => c.id === id)
+    if (tab !== 'ALL' && tab !== 'RETIF' && !existe(tab)) setTab('ALL')
+    if (fCat !== 'ALL' && !existe(fCat)) setFCat('ALL')
+  }, [state, tab, fCat])
+
   // se outra pessoa excluir o edital que está aberto num modal, fecha o modal
   useEffect(() => {
     if (!state || !modal) return
@@ -151,13 +162,11 @@ export default function Dashboard({ onLogout }: { onLogout: () => void }) {
     const needle = q.toLowerCase().trim()
     return editais
       .filter((x) => {
-        if (tab === 'TINTAS' && x.cat !== 'TINTAS') return false
-        if (tab === 'PNEUS' && x.cat !== 'PNEUS') return false
-        if (tab === 'RETIF' && x.retifs.length === 0) return false
+        if (tab === 'RETIF' ? x.retifs.length === 0 : tab !== 'ALL' && x.cat !== tab) return false
         if (fCat !== 'ALL' && x.cat !== fCat) return false
         if (fStatus !== 'ALL' && x.status !== fStatus) return false
         if (!inPeriod(x, fPer)) return false
-        if (needle && ![x.num, x.orgao, x.objeto, x.uasg, x.uf, x.portal].some((v) => v.toLowerCase().includes(needle))) return false
+        if (needle && ![x.num, x.orgao, x.objeto, x.uasg, x.cidade, x.uf, x.portal].some((v) => v.toLowerCase().includes(needle))) return false
         return true
       })
       .sort((a, b) => {
@@ -170,9 +179,8 @@ export default function Dashboard({ onLogout }: { onLogout: () => void }) {
   const counts = useMemo(
     () => ({
       all: editais.length,
-      tintas: editais.filter((x) => x.cat === 'TINTAS').length,
-      pneus: editais.filter((x) => x.cat === 'PNEUS').length,
       retif: editais.filter((x) => x.retifs.length > 0).length,
+      porCat: editais.reduce<Record<string, number>>((acc, x) => ((acc[x.cat] = (acc[x.cat] ?? 0) + 1), acc), {}),
     }),
     [editais],
   )
@@ -182,8 +190,10 @@ export default function Dashboard({ onLogout }: { onLogout: () => void }) {
   const onNav = (n: Nav) => {
     if (n === 'novo') return setModal({ type: 'edital' })
     if (n === 'relatorio') return setModal({ type: 'report' })
-    if (n === 'config') return setModal({ type: 'profile' })
+    if (n === 'perfil') return setModal({ type: 'profile' })
     if (n === 'usuarios') return setModal({ type: 'users' })
+    if (n === 'portais') return setModal({ type: 'portais' })
+    if (n === 'configuracoes') return setModal({ type: 'config' })
     setNav(n)
     if (n === 'calendario') {
       setTab('ALL')
@@ -191,14 +201,14 @@ export default function Dashboard({ onLogout }: { onLogout: () => void }) {
       setFPer('7days')
       notify('Mostrando prazos dos próximos 7 dias.')
     } else {
-      setTab(n === 'dashboard' ? 'ALL' : n)
+      setTab(n === 'RETIF' ? 'RETIF' : 'ALL')
     }
     scrollToTable()
   }
 
   const onTab = (t: Tab) => {
     setTab(t)
-    setNav(t === 'ALL' ? 'dashboard' : t)
+    setNav(t === 'ALL' ? 'dashboard' : t === 'RETIF' ? 'RETIF' : 'editais')
   }
 
   const clearFilters = () => {
@@ -283,13 +293,13 @@ export default function Dashboard({ onLogout }: { onLogout: () => void }) {
                 </div>
                 <h1 className="font-headline-lg text-headline-lg text-on-surface">Central de Registro e Acompanhamento de Editais</h1>
                 <p className="max-w-2xl text-body-md text-on-surface-variant">
-                  Acompanhamento unificado de editais de Tintas e Pneus, controle de alterações, aditivos técnicos e prazos de envio.
+                  Acompanhamento unificado de editais, controle de alterações, aditivos técnicos e prazos de envio.
                 </p>
               </div>
               <div className="flex flex-wrap items-center gap-space-sm">
                 <button
                   type="button"
-                  onClick={() => (filtered.length ? exportCsv(filtered) : notify('Nada para exportar.', true))}
+                  onClick={() => (filtered.length ? exportCsv(filtered, state.categorias, state.statuses) : notify('Nada para exportar.', true))}
                   className="flex items-center gap-space-xs rounded-lg bg-surface-container-low px-space-md py-2 font-label-md text-label-md text-primary transition-colors hover:bg-surface-container"
                 >
                   <span className="material-symbols-outlined text-[18px]">download</span> Exportar CSV
@@ -313,6 +323,8 @@ export default function Dashboard({ onLogout }: { onLogout: () => void }) {
 
             <FilterBar
               editais={editais}
+              categorias={state.categorias}
+              statuses={state.statuses}
               q={q}
               onQ={setQ}
               cat={fCat}
@@ -324,12 +336,13 @@ export default function Dashboard({ onLogout }: { onLogout: () => void }) {
               onClear={clearFilters}
             />
 
-            <Kpis editais={editais} />
+            <Kpis editais={editais} categorias={state.categorias} statuses={state.statuses} />
 
             <div className="grid grid-cols-1 gap-space-md xl:grid-cols-12">
-              <RegionPanel editais={editais} />
+              <RegionPanel editais={editais} categorias={state.categorias} />
               <RetifPanel
                 editais={editais}
+                categorias={state.categorias}
                 onNew={() => (editais.length ? setModal({ type: 'retif' }) : notify('Cadastre um edital primeiro.', true))}
                 onHist={(id) => setModal({ type: 'hist', id })}
               />
@@ -339,6 +352,8 @@ export default function Dashboard({ onLogout }: { onLogout: () => void }) {
               <EditalTable
                 list={filtered}
                 total={editais.length}
+                categorias={state.categorias}
+                statuses={state.statuses}
                 counts={counts}
                 tab={tab}
                 onTab={onTab}
@@ -356,7 +371,7 @@ export default function Dashboard({ onLogout }: { onLogout: () => void }) {
                 onDelete={(id) => {
                   if (confirm('Excluir este edital? Ele some para todos os usuários.')) void deleteIds([id], 'Edital excluído.')
                 }}
-                onExportSel={() => (selectedEditais.length ? exportCsv(selectedEditais) : notify('Nenhum edital marcado.', true))}
+                onExportSel={() => (selectedEditais.length ? exportCsv(selectedEditais, state.categorias, state.statuses) : notify('Nenhum edital marcado.', true))}
                 onDeleteSel={() => {
                   if (!selected.size) return notify('Nenhum edital marcado.', true)
                   if (confirm(`Excluir ${selected.size} edital(is) marcado(s)? Eles somem para todos os usuários.`)) void deleteIds([...selected], 'Editais excluídos.')
@@ -379,6 +394,9 @@ export default function Dashboard({ onLogout }: { onLogout: () => void }) {
         <EditalModal
           key={modal.id ?? 'novo'}
           initial={modalEdital}
+          categorias={state.categorias}
+          portais={state.portais}
+          statuses={state.statuses}
           onClose={closeModal}
           onSave={(v) =>
             act(
@@ -400,8 +418,9 @@ export default function Dashboard({ onLogout }: { onLogout: () => void }) {
       {modal?.type === 'report' && (
         <ReportModal
           editais={editais}
+          statuses={state.statuses}
           onClose={closeModal}
-          onExport={() => (editais.length ? exportCsv(editais) : notify('Nada para exportar.', true))}
+          onExport={() => (editais.length ? exportCsv(editais, state.categorias, state.statuses) : notify('Nada para exportar.', true))}
         />
       )}
       {modal?.type === 'profile' && (
@@ -436,6 +455,7 @@ export default function Dashboard({ onLogout }: { onLogout: () => void }) {
         <UsersModal
           me={me}
           users={state.users}
+          portais={state.portais}
           onClose={closeModal}
           onCreate={(v) => act(() => api.createUser(v), 'Usuário criado.')}
           onUpdate={(id, v) => act(() => api.updateUser(id, v), 'Usuário atualizado.')}
@@ -443,6 +463,42 @@ export default function Dashboard({ onLogout }: { onLogout: () => void }) {
             if (confirm(`Excluir o usuário ${u.nome} (@${u.usuario})? Ele perde o acesso na hora. Os editais que ele cadastrou continuam.`)) {
               void act(() => api.deleteUser(u.id), 'Usuário excluído.')
             }
+          }}
+        />
+      )}
+
+      {modal?.type === 'portais' && isAdmin && (
+        <PortaisModal
+          portais={state.portais}
+          editais={editais}
+          onClose={closeModal}
+          onCreate={(v) => act(() => api.createPortal(v), 'Portal criado.')}
+          onUpdate={(id, v) => act(() => api.updatePortal(id, v), 'Portal atualizado.')}
+          onDelete={(p, usos) => {
+            const aviso = usos ? ` Os ${usos} edital(is) que usam este portal continuam com o nome dele, mas passam a seguir as regras padrão.` : ''
+            if (confirm(`Excluir o portal ${p.nome}?${aviso}`)) void act(() => api.deletePortal(p.id), 'Portal excluído.')
+          }}
+        />
+      )}
+      {modal?.type === 'config' && isAdmin && (
+        <ConfigModal
+          categorias={state.categorias}
+          statuses={state.statuses}
+          editais={editais}
+          onClose={closeModal}
+          onCreateCat={(v) => act(() => api.createCategoria(v), 'Categoria criada.')}
+          onUpdateCat={(id, v) => act(() => api.updateCategoria(id, v), 'Categoria atualizada.')}
+          onDeleteCat={(c, usos) => {
+            if (usos) return notify(`A categoria ${c.nome} é usada por ${usos} edital(is). Mude a categoria deles antes de excluí-la.`, true)
+            if (confirm(`Excluir a categoria ${c.nome}?`)) void act(() => api.deleteCategoria(c.id), 'Categoria excluída.')
+          }}
+          onReorderCat={(ids) => act(() => api.reordenarCategorias(ids))}
+          onReorderStatus={(ids) => act(() => api.reordenarStatus(ids))}
+          onCreateStatus={(v) => act(() => api.createStatus(v), 'Status criado.')}
+          onUpdateStatus={(id, v) => act(() => api.updateStatus(id, v), 'Status atualizado.')}
+          onDeleteStatus={(s, usos) => {
+            if (usos) return notify(`O status ${s.nome} é usado por ${usos} edital(is). Mude o status deles antes de excluí-lo.`, true)
+            if (confirm(`Excluir o status ${s.nome}?`)) void act(() => api.deleteStatus(s.id), 'Status excluído.')
           }}
         />
       )}

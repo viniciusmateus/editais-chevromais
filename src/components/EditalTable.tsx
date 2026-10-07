@@ -1,13 +1,16 @@
-import { RESULTADOS, STATUS, STATUS_KEYS, type Edital, type Resultado, type StatusKey } from '../shared'
-import { brlFull, fmtDate, todayIso } from '../lib/utils'
+import { RESULTADOS, type CategoriaCfg, type Edital, type Resultado, type StatusCfg, type StatusKey } from '../shared'
+import { brlFull, catInfo, fmtDate, statusInfo, todayIso } from '../lib/utils'
 
-export type Tab = 'ALL' | 'TINTAS' | 'PNEUS' | 'RETIF'
+/** 'ALL', 'RETIF' ou o id de uma categoria */
+export type Tab = string
 export const PAGE_SIZE = 8
 
 interface Props {
   list: Edital[]
   total: number
-  counts: { all: number; tintas: number; pneus: number; retif: number }
+  categorias: CategoriaCfg[]
+  statuses: StatusCfg[]
+  counts: { all: number; retif: number; porCat: Record<string, number> }
   tab: Tab
   onTab: (t: Tab) => void
   page: number
@@ -26,22 +29,14 @@ interface Props {
   onDeleteSel: () => void
 }
 
-const statusStyle: Record<StatusKey, string> = {
-  PREP: 'bg-surface-container text-on-surface',
-  ANALISE: 'bg-[#e0f2fe] text-[#0369a1]',
-  DOCS: 'bg-secondary-container/40 text-on-secondary-container',
-  RETIF: 'bg-error-container/50 text-error',
-  IMPUG: 'bg-[#fef3c7] text-[#b45309]',
-}
-
-function CatBadge({ cat }: { cat: Edital['cat'] }) {
-  return cat === 'PNEUS' ? (
-    <span className="inline-flex items-center gap-1 rounded bg-[#fef3c7] px-2 py-0.5 font-label-sm text-label-sm font-bold text-[#b45309]">
-      <span className="material-symbols-outlined text-[14px]">tire_repair</span> Pneus
-    </span>
-  ) : (
-    <span className="inline-flex items-center gap-1 rounded bg-[#e0f2fe] px-2 py-0.5 font-label-sm text-label-sm font-bold text-[#0369a1]">
-      <span className="material-symbols-outlined text-[14px]">format_paint</span> Tintas
+function CatBadge({ cat }: { cat: CategoriaCfg }) {
+  return (
+    <span
+      className="inline-flex items-center gap-1.5 rounded px-2 py-0.5 font-label-sm text-label-sm font-bold"
+      style={{ background: `${cat.cor}22`, color: cat.cor }}
+    >
+      <span className="h-2 w-2 rounded-full" style={{ background: cat.cor }} />
+      {cat.nome}
     </span>
   )
 }
@@ -49,7 +44,7 @@ function CatBadge({ cat }: { cat: Edital['cat'] }) {
 function DateCell({ d }: { d: string }) {
   const t = todayIso()
   if (!d) return <span className="font-data-mono text-data-mono text-outline">A Definir</span>
-  if (d === t) return <span className="font-data-mono text-data-mono font-bold text-error">HOJE ({fmtDate(d).slice(0, 5)})</span>
+  if (d === t) return <span className="font-data-mono text-data-mono font-bold text-error">HOJE ({fmtDate(d)})</span>
   if (d < t) return <span className="font-data-mono text-data-mono text-outline line-through">{fmtDate(d)}</span>
   return <span className="font-data-mono text-data-mono font-semibold text-primary">{fmtDate(d)}</span>
 }
@@ -62,8 +57,7 @@ export default function EditalTable(p: Props) {
 
   const tabs: Array<{ id: Tab; label: string; n: number; dot?: string; danger?: boolean }> = [
     { id: 'ALL', label: 'Todos os Editais', n: p.counts.all },
-    { id: 'TINTAS', label: 'Tintas & Revestimentos', n: p.counts.tintas, dot: '#0284c7' },
-    { id: 'PNEUS', label: 'Pneus & Borrachas', n: p.counts.pneus, dot: '#d97706' },
+    ...p.categorias.map((c) => ({ id: c.id, label: c.nome, n: p.counts.porCat[c.id] ?? 0, dot: c.cor })),
     { id: 'RETIF', label: 'Com Retificações', n: p.counts.retif, dot: '#ba1a1a', danger: true },
   ]
 
@@ -146,7 +140,7 @@ export default function EditalTable(p: Props) {
                   <td className="px-space-md py-3">
                     <input type="checkbox" className="rounded" checked={p.selected.has(x.id)} onChange={(e) => p.onToggle([x.id], e.target.checked)} />
                   </td>
-                  <td className="whitespace-nowrap px-space-md py-3"><CatBadge cat={x.cat} /></td>
+                  <td className="whitespace-nowrap px-space-md py-3"><CatBadge cat={catInfo(p.categorias, x.cat)} /></td>
                   <td className="whitespace-nowrap px-space-md py-3">
                     <div
                       className="flex flex-col"
@@ -166,7 +160,7 @@ export default function EditalTable(p: Props) {
                         className="font-label-sm text-label-sm text-outline"
                         title={`Cadastrado por ${x.criadoPor || '—'} • Última alteração por ${x.atualizadoPor || '—'}`}
                       >
-                        {x.uf}
+                        {x.cidade ? `${x.cidade}/` : ''}{x.uf}
                         {x.atualizadoPor ? ` • ${x.atualizadoPor}` : ''}
                       </span>
                     </div>
@@ -196,10 +190,11 @@ export default function EditalTable(p: Props) {
                     <select
                       value={x.status}
                       onChange={(e) => p.onStatus(x.id, e.target.value as StatusKey)}
-                      className={`rounded-full border-none px-2 py-1 font-label-sm text-label-sm font-semibold focus:outline-none ${statusStyle[x.status]}`}
+                      className="rounded-full border-none px-2 py-1 font-label-sm text-label-sm font-semibold focus:outline-none"
+                      style={{ background: `${statusInfo(p.statuses, x.status).cor}22`, color: statusInfo(p.statuses, x.status).cor }}
                     >
-                      {STATUS_KEYS.map((k) => (
-                        <option key={k} value={k}>{STATUS[k]}</option>
+                      {p.statuses.map((s) => (
+                        <option key={s.id} value={s.id}>{s.nome}</option>
                       ))}
                     </select>
                   </td>

@@ -1,4 +1,4 @@
-import { MODALIDADES, REGIOES, RESULTADOS, STATUS, type Edital } from '../shared'
+import { MODALIDADES, REGIOES, REGRAS_PADRAO, RESULTADOS, type CategoriaCfg, type StatusCfg, type Edital, type Portal, type RegrasCampos } from '../shared'
 
 export type Periodo = 'all' | 'today' | '7days' | 'month'
 
@@ -12,7 +12,24 @@ export const addDaysIso = (n: number) => {
   return isoDate(d)
 }
 
+/** AAAA-MM-DD -> dd/MM/aaaa */
 export const fmtDate = (s: string) => (s ? s.split('-').reverse().join('/') : 'A Definir')
+
+/** Instante (ms) -> dd/MM/aaaa HH:mm (24 horas) */
+export function fmtTs(ts: number): string {
+  if (!ts) return ''
+  const d = new Date(ts)
+  return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
+/** Categoria pelo id; se ela não existir mais, devolve um cinza com o próprio id. */
+export const catInfo = (cats: CategoriaCfg[], id: string): CategoriaCfg => cats.find((c) => c.id === id) ?? { id, nome: id, cor: '#64748b' }
+
+/** Status pelo id; se ele não existir mais, devolve um cinza com o próprio id. */
+export const statusInfo = (sts: StatusCfg[], id: string): StatusCfg => sts.find((s) => s.id === id) ?? { id, nome: id, cor: '#64748b' }
+
+/** Regras dos campos do portal informado (sem portal ou portal desconhecido: regras padrão). */
+export const regrasDoPortal = (portais: Portal[], nome: string): RegrasCampos => portais.find((p) => p.nome === nome)?.campos ?? REGRAS_PADRAO
 
 const BRL = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' })
 
@@ -55,11 +72,11 @@ export function inPeriod(e: Edital, p: Periodo): boolean {
 }
 
 /** Baixa um CSV (separador ;, UTF-8 com BOM) que abre direto no Excel. */
-export function exportCsv(list: Edital[]): void {
+export function exportCsv(list: Edital[], categorias: CategoriaCfg[], statuses: StatusCfg[]): void {
   const q = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`
-  const head = ['Categoria', 'Edital', 'UASG / ID', 'Portal', 'Órgão', 'UF', 'Objeto', 'Modalidade', 'Valor ganho', 'Data limite', 'Horário', 'Status', 'Resultado', 'Retificações']
+  const head = ['Categoria', 'Edital', 'UASG / ID', 'Portal', 'Órgão', 'Cidade', 'UF', 'Objeto', 'Modalidade', 'Valor ganho', 'Data limite', 'Horário', 'Status', 'Resultado', 'Retificações']
   const rows = list.map((x) =>
-    [x.cat, x.num, x.uasg, x.portal, x.orgao, x.uf, x.objeto, MODALIDADES[x.mod], x.valorGanho.toFixed(2).replace('.', ','), fmtDate(x.data), x.hora, STATUS[x.status], x.resultado ? RESULTADOS[x.resultado] : 'Em andamento', x.retifs.length]
+    [catInfo(categorias, x.cat).nome, x.num, x.uasg, x.portal, x.orgao, x.cidade, x.uf, x.objeto, MODALIDADES[x.mod], x.valorGanho.toFixed(2).replace('.', ','), fmtDate(x.data), x.hora, statusInfo(statuses, x.status).nome, x.resultado ? RESULTADOS[x.resultado] : 'Em andamento', x.retifs.length]
       .map(q)
       .join(';'),
   )

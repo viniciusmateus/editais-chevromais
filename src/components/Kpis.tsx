@@ -1,4 +1,4 @@
-import type { Edital } from '../shared'
+import type { CategoriaCfg, Edital, StatusCfg } from '../shared'
 import { brl, todayIso } from '../lib/utils'
 
 const sum = (a: Edital[]) => a.reduce((s, x) => s + x.valorGanho, 0)
@@ -20,23 +20,25 @@ function SubBar({ label, n, total, color }: { label: string; n: number; total: n
 
 const card = 'flex flex-col justify-between rounded-xl bg-surface-container-lowest p-space-lg shadow-sm transition-shadow hover:shadow-md'
 
-export default function Kpis({ editais }: { editais: Edital[] }) {
-  const tin = editais.filter((x) => x.cat === 'TINTAS')
-  const pne = editais.filter((x) => x.cat === 'PNEUS')
+export default function Kpis({ editais, categorias, statuses }: { editais: Edital[]; categorias: CategoriaCfg[]; statuses: StatusCfg[] }) {
+  const st = (id: string) => statuses.find((s) => s.id === id)
   const total = editais.length || 1
   const nRet = count(editais, (x) => x.retifs.length > 0)
   const totalRet = editais.reduce((s, x) => s + x.retifs.length, 0)
   const prazoAlt = count(editais, (x) => x.retifs.some((r) => r.dias > 0))
   const pct = (n: number) => Math.round((n / total) * 100)
 
-  const catCard = (name: string, dot: string, text: string, badgeBg: string, list: Edital[], color: string) => (
-    <div className={card}>
+  const catCard = (c: CategoriaCfg) => {
+    const list = editais.filter((x) => x.cat === c.id)
+    const dot = c.cor
+    return (
+    <div key={c.id} className={card}>
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-space-xs">
           <span className="h-2.5 w-2.5 rounded-full" style={{ background: dot }} />
-          <span className="font-label-sm text-label-sm font-bold uppercase" style={{ color: text }}>{name}</span>
+          <span className="font-label-sm text-label-sm font-bold uppercase" style={{ color: dot }}>{c.nome}</span>
         </div>
-        <span className="rounded px-2 py-0.5 font-label-sm text-label-sm font-semibold" style={{ background: badgeBg, color: text }}>
+        <span className="rounded px-2 py-0.5 font-label-sm text-label-sm font-semibold" style={{ background: `${dot}22`, color: dot }}>
           {pct(list.length)}% do Funil
         </span>
       </div>
@@ -49,15 +51,16 @@ export default function Kpis({ editais }: { editais: Edital[] }) {
           </span>
         </div>
         <div className="mt-space-sm flex flex-col gap-1">
-          <SubBar label="Documentação pronta" n={count(list, (x) => x.status === 'DOCS')} total={list.length} color={color} />
+          {st('DOCS') && <SubBar label={st('DOCS')!.nome} n={count(list, (x) => x.status === 'DOCS')} total={list.length} color={dot} />}
           <div className="mt-0.5 flex justify-between font-label-sm text-label-sm text-outline">
-            <span>Em análise: {count(list, (x) => x.status === 'ANALISE')}</span>
-            <span>Aguardando: {count(list, (x) => x.status === 'PREP')}</span>
+            {st('ANALISE') && <span>{st('ANALISE')!.nome}: {count(list, (x) => x.status === 'ANALISE')}</span>}
+            {st('PREP') && <span>{st('PREP')!.nome}: {count(list, (x) => x.status === 'PREP')}</span>}
           </div>
         </div>
       </div>
     </div>
-  )
+    )
+  }
 
   return (
     <div className="grid grid-cols-1 gap-space-md sm:grid-cols-2 xl:grid-cols-4">
@@ -88,8 +91,7 @@ export default function Kpis({ editais }: { editais: Edital[] }) {
         </div>
       </div>
 
-      {catCard('Tintas & Revestimentos', '#0284c7', '#0369a1', '#e0f2fe', tin, '#0284c7')}
-      {catCard('Pneus & Linha Rodoviária', '#d97706', '#b45309', '#fef3c7', pne, '#d97706')}
+      {categorias.map(catCard)}
 
       <div className={card}>
         <div className="flex items-center justify-between">
@@ -108,14 +110,20 @@ export default function Kpis({ editais }: { editais: Edital[] }) {
           </div>
           <div className="mt-space-sm flex flex-col gap-1">
             <SubBar
-              label={`${count(editais, (x) => x.cat === 'TINTAS' && x.retifs.length > 0)} Tintas • ${count(editais, (x) => x.cat === 'PNEUS' && x.retifs.length > 0)} Pneus`}
+              label={
+                categorias
+                  .map((c) => ({ c, n: count(editais, (x) => x.cat === c.id && x.retifs.length > 0) }))
+                  .filter((i) => i.n > 0)
+                  .map((i) => `${i.n} ${i.c.nome}`)
+                  .join(' • ') || 'Nenhuma retificação'
+              }
               n={nRet}
               total={editais.length}
               color="#ba1a1a"
             />
             <div className="mt-0.5 flex justify-between font-label-sm text-label-sm text-outline">
               <span>Prazo prorrogado: {prazoAlt}</span>
-              <span>Impugnações: {count(editais, (x) => x.status === 'IMPUG')}</span>
+              {st('IMPUG') && <span>{st('IMPUG')!.nome}: {count(editais, (x) => x.status === 'IMPUG')}</span>}
             </div>
           </div>
         </div>

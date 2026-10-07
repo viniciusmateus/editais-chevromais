@@ -1,7 +1,9 @@
 // Tipos e constantes compartilhados entre o front-end (src/) e a API (server/).
 
-export type Categoria = 'TINTAS' | 'PNEUS'
-export type StatusKey = 'PREP' | 'ANALISE' | 'DOCS' | 'RETIF' | 'IMPUG'
+/** id de uma categoria cadastrada em Configurações (as categorias são gerenciadas pelo administrador) */
+export type CategoriaId = string
+/** id de um status cadastrado em Configurações */
+export type StatusKey = string
 export type Modalidade = 0 | 1 | 2
 export type Papel = 'admin' | 'usuario'
 /** '' = em andamento */
@@ -33,11 +35,12 @@ export interface Retif {
 
 export interface Edital {
   id: number
-  cat: Categoria
+  cat: CategoriaId
   mod: Modalidade
   num: string
   uasg: string
   orgao: string
+  cidade: string
   uf: string
   objeto: string
   /** valor ganho na licitação (R$, com centavos). 0 = ainda não ganhou / não informado */
@@ -70,7 +73,80 @@ export interface PublicUser {
   nome: string
   cargo: string
   papel: Papel
+  /** ids dos portais que o usuário enxerga; null = todos. Administradores sempre enxergam todos. */
+  portais: number[] | null
 }
+
+export interface StatusCfg {
+  id: StatusKey
+  nome: string
+  cor: string
+}
+
+export interface CategoriaCfg {
+  id: CategoriaId
+  nome: string
+  /** cor em #rrggbb, usada nos selos e gráficos */
+  cor: string
+}
+
+/** Campos do formulário de edital cuja exibição/obrigatoriedade cada portal controla. */
+export const CAMPOS_PORTAL = [
+  { key: 'mod', label: 'Modalidade', semObrigatorio: true },
+  { key: 'num', label: 'Nº do Edital' },
+  { key: 'uasg', label: 'UASG / Nº de identificação' },
+  { key: 'orgao', label: 'Órgão Comprador' },
+  { key: 'cidade', label: 'Cidade' },
+  { key: 'uf', label: 'UF' },
+  { key: 'objeto', label: 'Objeto' },
+  { key: 'data', label: 'Data limite' },
+  { key: 'hora', label: 'Horário' },
+  { key: 'valorGanho', label: 'Valor ganho' },
+  { key: 'resultado', label: 'Resultado da licitação', semObrigatorio: true },
+] as const satisfies ReadonlyArray<{ key: string; label: string; semObrigatorio?: boolean }>
+
+export type CampoKey = (typeof CAMPOS_PORTAL)[number]['key']
+export type Regra = 'oculto' | 'opcional' | 'obrigatorio'
+export type RegrasCampos = Record<CampoKey, Regra>
+
+/** Regras usadas por editais sem portal informado e como ponto de partida de um portal novo. */
+export const REGRAS_PADRAO: RegrasCampos = {
+  mod: 'opcional',
+  num: 'obrigatorio',
+  uasg: 'obrigatorio',
+  orgao: 'obrigatorio',
+  cidade: 'opcional',
+  uf: 'obrigatorio',
+  objeto: 'obrigatorio',
+  data: 'opcional',
+  hora: 'opcional',
+  valorGanho: 'opcional',
+  resultado: 'opcional',
+}
+
+export interface Portal {
+  id: number
+  nome: string
+  campos: RegrasCampos
+}
+
+/** Rótulos dos campos obrigatórios (segundo as regras) que estão vazios. */
+export function camposFaltando(regras: RegrasCampos, v: Pick<EditalInput, CampoKey>, ignorar: CampoKey[] = []): string[] {
+  return CAMPOS_PORTAL.filter(({ key }) => {
+    if (regras[key] !== 'obrigatorio' || ignorar.includes(key)) return false
+    return key === 'valorGanho' ? !(v.valorGanho > 0) : !String(v[key] ?? '').trim()
+  }).map((c) => c.label)
+}
+
+/** AAAA-MM-DD que existe no calendário. */
+export function isoValida(s: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return false
+  const d = new Date(s + 'T00:00:00Z')
+  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === s
+}
+
+/** HH:MM em 24 horas. */
+export const horaValida = (s: string) => /^([01]\d|2[0-3]):[0-5]\d$/.test(s)
 
 export interface AppState {
   /** contador que sobe a cada alteração no banco — usado para sincronizar as telas */
@@ -79,6 +155,9 @@ export interface AppState {
   /** lista de usuários (só vem preenchida para administradores) */
   users: PublicUser[]
   editais: Edital[]
+  portais: Portal[]
+  categorias: CategoriaCfg[]
+  statuses: StatusCfg[]
 }
 
 export interface Unchanged {
@@ -93,21 +172,28 @@ export interface AuthStatus {
   sugestao?: { nome: string; cargo: string }
 }
 
-export const STATUS: Record<StatusKey, string> = {
-  PREP: 'Aguardando Abertura',
-  ANALISE: 'Em Análise Técnica',
-  DOCS: 'Documentação Pronta',
-  RETIF: 'Retificado / Aditivo',
-  IMPUG: 'Em Impugnação',
-}
+export const STATUS_INICIAIS: StatusCfg[] = [
+  { id: 'PREP', nome: 'Aguardando Abertura', cor: '#64748b' },
+  { id: 'ANALISE', nome: 'Em Análise Técnica', cor: '#0369a1' },
+  { id: 'DOCS', nome: 'Documentação Pronta', cor: '#15803d' },
+  { id: 'RETIF', nome: 'Retificado / Aditivo', cor: '#ba1a1a' },
+  { id: 'IMPUG', nome: 'Em Impugnação', cor: '#b45309' },
+]
+
+/** Status usados pelo próprio sistema: PREP é o inicial de todo edital novo e RETIF é aplicado ao registrar uma retificação. Podem ser renomeados, não excluídos. */
+export const STATUS_FIXOS: StatusKey[] = ['PREP', 'RETIF']
 
 export const RESULTADOS: Record<Exclude<Resultado, ''>, string> = { GANHAMOS: 'Ganhamos', PERDEMOS: 'Perdemos' }
 
-export const STATUS_KEYS = Object.keys(STATUS) as StatusKey[]
-
 export const MODALIDADES = ['Pregão Eletrônico', 'Dispensa Eletrônica', 'Concorrência Pública'] as const
 
-export const PORTAIS = ['Comprasnet', 'Licitações-e', 'BLL', 'Portal de Compras Públicas', 'BNC', 'Licitanet', 'PNCP'] as const
+/** portais cadastrados na primeira execução (depois são gerenciados no painel Portais) */
+export const PORTAIS_INICIAIS = ['Comprasnet', 'Licitações-e', 'BLL', 'Portal de Compras Públicas', 'BNC', 'Licitanet', 'PNCP'] as const
+
+export const CATEGORIAS_INICIAIS: CategoriaCfg[] = [
+  { id: 'TINTAS', nome: 'Tintas', cor: '#0284c7' },
+  { id: 'PNEUS', nome: 'Pneus', cor: '#d97706' },
+]
 
 export const REGIOES: Record<string, string[]> = {
   Sul: ['PR', 'SC', 'RS'],

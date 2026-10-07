@@ -130,6 +130,20 @@ route('POST', /^\/api\/users$/, true, async (c) => ({ status: 201, body: await d
 route('PUT', /^\/api\/users\/(\d+)$/, true, async (c, m) => ({ body: await db.updateUser(c.user!, Number(m[1]), c.body) }))
 route('DELETE', /^\/api\/users\/(\d+)$/, true, async (c, m) => ({ body: await db.deleteUser(c.user!, Number(m[1])) }))
 
+// portais e categorias (somente administradores — conferido no db.ts)
+route('POST', /^\/api\/portais$/, true, async (c) => ({ status: 201, body: await db.createPortal(c.user!, c.body) }))
+route('PUT', /^\/api\/portais\/(\d+)$/, true, async (c, m) => ({ body: await db.updatePortal(c.user!, Number(m[1]), c.body) }))
+route('DELETE', /^\/api\/portais\/(\d+)$/, true, async (c, m) => ({ body: await db.deletePortal(c.user!, Number(m[1])) }))
+route('POST', /^\/api\/categorias$/, true, async (c) => ({ status: 201, body: await db.createCategoria(c.user!, c.body) }))
+route('POST', /^\/api\/categorias\/ordem$/, true, async (c) => ({ body: await db.reordenarCategorias(c.user!, c.body) }))
+route('PUT', /^\/api\/categorias\/([\w-]+)$/, true, async (c, m) => ({ body: await db.updateCategoria(c.user!, m[1], c.body) }))
+route('DELETE', /^\/api\/categorias\/([\w-]+)$/, true, async (c, m) => ({ body: await db.deleteCategoria(c.user!, m[1]) }))
+
+route('POST', /^\/api\/status$/, true, async (c) => ({ status: 201, body: await db.createStatus(c.user!, c.body) }))
+route('POST', /^\/api\/status\/ordem$/, true, async (c) => ({ body: await db.reordenarStatus(c.user!, c.body) }))
+route('PUT', /^\/api\/status\/([\w-]+)$/, true, async (c, m) => ({ body: await db.updateStatus(c.user!, m[1], c.body) }))
+route('DELETE', /^\/api\/status\/([\w-]+)$/, true, async (c, m) => ({ body: await db.deleteStatus(c.user!, m[1]) }))
+
 // editais
 route('POST', /^\/api\/editais$/, true, async (c) => ({ status: 201, body: await db.createEdital(c.user!, c.body) }))
 route('POST', /^\/api\/editais\/delete$/, true, async (c) => ({

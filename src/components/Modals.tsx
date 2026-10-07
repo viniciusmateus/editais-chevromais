@@ -1,31 +1,29 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
 import {
   MODALIDADES,
-  PORTAIS,
   RESULTADOS,
-  STATUS,
-  STATUS_KEYS,
-  type Categoria,
+  type CategoriaCfg,
   type Edital,
   type EditalInput,
   type Modalidade,
   type Papel,
+  type Portal,
   type PublicUser,
   type Resultado,
+  type StatusCfg,
   type StatusKey,
 } from '../shared'
 import type { NewUser, UserPatch } from '../lib/api'
-import { brl, moneyToInput, parseMoney } from '../lib/utils'
+import { brl, fmtTs, moneyToInput, parseMoney, regrasDoPortal } from '../lib/utils'
+import { DateInput, TimeInput } from './Inputs'
 
-const input =
+export const input =
   'w-full h-9 px-3 rounded-lg bg-surface-container-low text-on-surface focus:outline-none focus:ring-1 focus:ring-secondary'
-const labelCls = 'font-label-sm text-label-sm text-outline uppercase tracking-wider'
-const btnPrimary = 'rounded-lg bg-primary px-4 py-2 font-label-md text-label-md text-on-primary disabled:opacity-60'
-const btnGhost = 'rounded-lg bg-surface-container-low px-4 py-2 font-label-md text-label-md text-primary'
+export const labelCls = 'font-label-sm text-label-sm text-outline uppercase tracking-wider'
+export const btnPrimary = 'rounded-lg bg-primary px-4 py-2 font-label-md text-label-md text-on-primary disabled:opacity-60'
+export const btnGhost = 'rounded-lg bg-surface-container-low px-4 py-2 font-label-md text-label-md text-primary'
 
-const OUTRO = '__outro__'
-
-function Field({ label, children, className = '' }: { label: string; children: ReactNode; className?: string }) {
+export function Field({ label, children, className = '' }: { label: string; children: ReactNode; className?: string }) {
   return (
     <label className={`flex flex-col gap-1 ${className}`}>
       <span className={labelCls}>{label}</span>
@@ -34,7 +32,19 @@ function Field({ label, children, className = '' }: { label: string; children: R
   )
 }
 
-export function Modal({ title, icon, onClose, children }: { title: string; icon: string; onClose: () => void; children: ReactNode }) {
+export function Modal({
+  title,
+  icon,
+  onClose,
+  wide,
+  children,
+}: {
+  title: string
+  icon: string
+  onClose: () => void
+  wide?: boolean
+  children: ReactNode
+}) {
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose()
@@ -50,7 +60,7 @@ export function Modal({ title, icon, onClose, children }: { title: string; icon:
         if (e.target === e.currentTarget) onClose()
       }}
     >
-      <div className="max-h-[90vh] w-full max-w-xl overflow-y-auto rounded-xl bg-surface-container-lowest p-space-lg shadow-xl">
+      <div className={`max-h-[90vh] w-full ${wide ? 'max-w-3xl' : 'max-w-xl'} overflow-y-auto rounded-xl bg-surface-container-lowest p-space-lg shadow-xl`}>
         <div className="mb-space-md flex items-center justify-between">
           <div className="flex items-center gap-2">
             <span className="material-symbols-outlined text-primary">{icon}</span>
@@ -66,7 +76,7 @@ export function Modal({ title, icon, onClose, children }: { title: string; icon:
   )
 }
 
-function Actions({ onClose, busy, submit, danger }: { onClose: () => void; busy: boolean; submit: string; danger?: boolean }) {
+export function Actions({ onClose, busy, submit, danger }: { onClose: () => void; busy: boolean; submit: string; danger?: boolean }) {
   return (
     <div className="flex justify-end gap-space-sm pt-space-sm">
       <button type="button" onClick={onClose} className={btnGhost}>
@@ -86,26 +96,31 @@ function Actions({ onClose, busy, submit, danger }: { onClose: () => void; busy:
 // ---------- Novo / editar edital ----------
 export function EditalModal({
   initial,
+  categorias,
+  portais,
+  statuses,
   onSave,
   onClose,
 }: {
   initial?: Edital
+  categorias: CategoriaCfg[]
+  portais: Portal[]
+  statuses: StatusCfg[]
   onSave: (v: EditalInput) => Promise<boolean>
   onClose: () => void
 }) {
-  const portalInicial = initial?.portal ?? ''
-  const portalNaLista = (PORTAIS as readonly string[]).includes(portalInicial)
   const [f, setF] = useState({
-    cat: (initial?.cat ?? 'TINTAS') as Categoria,
+    // a categoria sempre começa vazia (também ao editar): quem salva precisa escolher a correta
+    cat: '',
     mod: (initial?.mod ?? 0) as Modalidade,
     num: initial?.num ?? '',
     uasg: initial?.uasg ?? '',
     orgao: initial?.orgao ?? '',
+    cidade: initial?.cidade ?? '',
     uf: initial?.uf ?? '',
     objeto: initial?.objeto ?? '',
     valorGanho: moneyToInput(initial?.valorGanho ?? 0),
-    portalSel: portalNaLista ? portalInicial : portalInicial ? OUTRO : '',
-    portalOutro: portalNaLista ? '' : portalInicial,
+    portal: initial?.portal ?? '',
     data: initial?.data ?? '',
     hora: initial?.hora ?? '',
     status: (initial?.status ?? 'PREP') as StatusKey,
@@ -115,16 +130,22 @@ export function EditalModal({
   const set = <K extends keyof typeof f>(k: K, v: (typeof f)[K]) => setF((p) => ({ ...p, [k]: v }))
   const [err, setErr] = useState<string | null>(null)
 
+  // o portal escolhido define quais campos aparecem e quais são obrigatórios
+  const regras = regrasDoPortal(portais, f.portal)
+  const show = (k: keyof typeof regras) => regras[k] !== 'oculto'
+  const req = (k: keyof typeof regras) => regras[k] === 'obrigatorio'
+  const lbl = (text: string, k: keyof typeof regras) => (req(k) ? `${text} *` : text)
+  // portal que já não está cadastrado (excluído/renomeado) continua aparecendo no edital que o usa
+  const portalOrfao = f.portal && !portais.some((p) => p.nome === f.portal)
+
   const submit = async (e: FormEvent) => {
     e.preventDefault()
     const valorGanho = parseMoney(f.valorGanho)
     if (valorGanho === null) return setErr('Valor ganho inválido. Use só números, por exemplo 15000, 15.000,50 ou 15000.50.')
-    const portal = f.portalSel === OUTRO ? f.portalOutro.trim() : f.portalSel
-    if (f.portalSel === OUTRO && !portal) return setErr('Digite o nome do portal ou escolha um da lista.')
+    if (initial && req('valorGanho') && !(valorGanho > 0)) return setErr('Informe o valor ganho (campo obrigatório para este portal).')
     setErr(null)
     setBusy(true)
-    const { portalSel: _sel, portalOutro: _outro, valorGanho: _texto, ...campos } = f
-    const ok = await onSave({ ...campos, valorGanho, portal, uf: f.uf.toUpperCase() })
+    const ok = await onSave({ ...f, valorGanho, uf: f.uf.toUpperCase() })
     setBusy(false)
     if (ok) onClose()
   }
@@ -132,84 +153,108 @@ export function EditalModal({
   return (
     <Modal title={initial ? 'Editar Edital' : 'Novo Edital / Registro'} icon="post_add" onClose={onClose}>
       <form onSubmit={submit} className="grid grid-cols-2 gap-space-md">
-        <Field label="Categoria">
-          <select className={input} value={f.cat} onChange={(e) => set('cat', e.target.value as Categoria)}>
-            <option value="TINTAS">Tintas</option>
-            <option value="PNEUS">Pneus</option>
-          </select>
-        </Field>
-        <Field label="Modalidade">
-          <select className={input} value={f.mod} onChange={(e) => set('mod', Number(e.target.value) as Modalidade)}>
-            {MODALIDADES.map((m, i) => (
-              <option key={m} value={i}>{m}</option>
-            ))}
-          </select>
-        </Field>
-        <Field label="Nº do Edital">
-          <input required className={input} placeholder="PE 001/2026" value={f.num} onChange={(e) => set('num', e.target.value)} />
-        </Field>
-        <Field label="UASG / Nº de identificação">
-          <input required className={input} placeholder="Ex.: 158123 ou 158.123-4" value={f.uasg} onChange={(e) => set('uasg', e.target.value)} />
-          <span className="text-[11px] text-outline">Aceita qualquer formato: números, decimais, traços e letras.</span>
-        </Field>
-        <Field label="Órgão Comprador" className="col-span-2">
-          <input required className={input} value={f.orgao} onChange={(e) => set('orgao', e.target.value)} />
-        </Field>
-        <Field label="UF">
-          <input required maxLength={2} className={`${input} uppercase`} placeholder="PR" value={f.uf} onChange={(e) => set('uf', e.target.value)} />
-        </Field>
         <Field label="Portal da licitação">
-          <select className={input} value={f.portalSel} onChange={(e) => set('portalSel', e.target.value)}>
+          <select className={input} value={f.portal} onChange={(e) => set('portal', e.target.value)}>
             <option value="">Não informado</option>
-            {PORTAIS.map((p) => (
-              <option key={p} value={p}>{p}</option>
+            {portalOrfao && <option value={f.portal}>{f.portal} (não cadastrado)</option>}
+            {portais.map((p) => (
+              <option key={p.id} value={p.nome}>{p.nome}</option>
             ))}
-            <option value={OUTRO}>Outro (digitar)</option>
+          </select>
+          <span className="text-[11px] text-outline">Os campos abaixo mudam conforme o portal. * = obrigatório.</span>
+        </Field>
+        <Field label="Categoria *">
+          <select required className={input} value={f.cat} onChange={(e) => set('cat', e.target.value)}>
+            <option value="">Selecione a categoria…</option>
+            {categorias.map((c) => (
+              <option key={c.id} value={c.id}>{c.nome}</option>
+            ))}
           </select>
         </Field>
-        {f.portalSel === OUTRO && (
-          <Field label="Nome do portal" className="col-span-2">
-            <input required maxLength={60} className={input} placeholder="Ex.: Portal da prefeitura" value={f.portalOutro} onChange={(e) => set('portalOutro', e.target.value)} />
+        {show('mod') && (
+          <Field label="Modalidade">
+            <select className={input} value={f.mod} onChange={(e) => set('mod', Number(e.target.value) as Modalidade)}>
+              {MODALIDADES.map((m, i) => (
+                <option key={m} value={i}>{m}</option>
+              ))}
+            </select>
           </Field>
         )}
-        <Field label="Objeto" className="col-span-2">
-          <textarea required rows={3} className={`${input} h-auto py-2`} value={f.objeto} onChange={(e) => set('objeto', e.target.value)} />
-        </Field>
-        <Field label="Data limite">
-          <input type="date" className={input} value={f.data} onChange={(e) => set('data', e.target.value)} />
-        </Field>
-        <Field label="Horário">
-          <input type="time" className={input} value={f.hora} onChange={(e) => set('hora', e.target.value)} />
-        </Field>
+        {show('num') && (
+          <Field label={lbl('Nº do Edital', 'num')}>
+            <input required={req('num')} className={input} placeholder="PE 001/2026" value={f.num} onChange={(e) => set('num', e.target.value)} />
+          </Field>
+        )}
+        {show('uasg') && (
+          <Field label={lbl('UASG / Nº de identificação', 'uasg')}>
+            <input required={req('uasg')} className={input} placeholder="Ex.: 158123 ou 158.123-4" value={f.uasg} onChange={(e) => set('uasg', e.target.value)} />
+            <span className="text-[11px] text-outline">Aceita qualquer formato: números, decimais, traços e letras.</span>
+          </Field>
+        )}
+        {show('orgao') && (
+          <Field label={lbl('Órgão Comprador', 'orgao')} className="col-span-2">
+            <input required={req('orgao')} className={input} value={f.orgao} onChange={(e) => set('orgao', e.target.value)} />
+          </Field>
+        )}
+        {show('cidade') && (
+          <Field label={lbl('Cidade', 'cidade')}>
+            <input required={req('cidade')} maxLength={80} className={input} placeholder="Ex.: Londrina" value={f.cidade} onChange={(e) => set('cidade', e.target.value)} />
+          </Field>
+        )}
+        {show('uf') && (
+          <Field label={lbl('UF', 'uf')}>
+            <input required={req('uf')} maxLength={2} className={`${input} uppercase`} placeholder="PR" value={f.uf} onChange={(e) => set('uf', e.target.value)} />
+          </Field>
+        )}
+        {show('objeto') && (
+          <Field label={lbl('Objeto', 'objeto')} className="col-span-2">
+            <textarea required={req('objeto')} rows={3} className={`${input} h-auto py-2`} value={f.objeto} onChange={(e) => set('objeto', e.target.value)} />
+          </Field>
+        )}
+        {show('data') && (
+          <Field label={lbl('Data limite', 'data')}>
+            <DateInput required={req('data')} className={input} value={f.data} onChange={(v) => set('data', v)} />
+          </Field>
+        )}
+        {show('hora') && (
+          <Field label={lbl('Horário (24h)', 'hora')}>
+            <TimeInput required={req('hora')} className={input} value={f.hora} onChange={(v) => set('hora', v)} />
+          </Field>
+        )}
         <Field label="Status">
           <select className={input} value={f.status} onChange={(e) => set('status', e.target.value as StatusKey)}>
-            {STATUS_KEYS.map((k) => (
-              <option key={k} value={k}>{STATUS[k]}</option>
+            {statuses.map((s) => (
+              <option key={s.id} value={s.id}>{s.nome}</option>
             ))}
           </select>
         </Field>
-        <Field label="Valor ganho (R$)">
-          <input
-            inputMode="decimal"
-            autoComplete="off"
-            className={input}
-            placeholder="Ex.: 15.000,50"
-            value={f.valorGanho}
-            onChange={(e) => set('valorGanho', e.target.value)}
-          />
-          <span className="text-[11px] text-outline">Aceita centavos. Deixe vazio enquanto não ganhou.</span>
-        </Field>
-        <Field label="Resultado da licitação">
-          <select
-            className={`${input} font-semibold ${f.resultado === 'GANHAMOS' ? 'text-green-700' : f.resultado === 'PERDEMOS' ? 'text-red-700' : ''}`}
-            value={f.resultado}
-            onChange={(e) => set('resultado', e.target.value as Resultado)}
-          >
-            <option value="">Em andamento</option>
-            <option value="GANHAMOS">{RESULTADOS.GANHAMOS}</option>
-            <option value="PERDEMOS">{RESULTADOS.PERDEMOS}</option>
-          </select>
-        </Field>
+        {initial && show('valorGanho') && (
+          <Field label={lbl('Valor ganho (R$)', 'valorGanho')}>
+            <input
+              inputMode="decimal"
+              autoComplete="off"
+              required={req('valorGanho')}
+              className={input}
+              placeholder="Ex.: 15.000,50"
+              value={f.valorGanho}
+              onChange={(e) => set('valorGanho', e.target.value)}
+            />
+            <span className="text-[11px] text-outline">Aceita centavos. Deixe vazio enquanto não ganhou.</span>
+          </Field>
+        )}
+        {initial && show('resultado') && (
+          <Field label="Resultado da licitação">
+            <select
+              className={`${input} font-semibold ${f.resultado === 'GANHAMOS' ? 'text-green-700' : f.resultado === 'PERDEMOS' ? 'text-red-700' : ''}`}
+              value={f.resultado}
+              onChange={(e) => set('resultado', e.target.value as Resultado)}
+            >
+              <option value="">Em andamento</option>
+              <option value="GANHAMOS">{RESULTADOS.GANHAMOS}</option>
+              <option value="PERDEMOS">{RESULTADOS.PERDEMOS}</option>
+            </select>
+          </Field>
+        )}
         {err && <div className="col-span-2 rounded-lg bg-error-container/50 px-3 py-2 text-body-sm font-medium text-on-error-container">{err}</div>}
         <div className="col-span-2">
           <Actions onClose={onClose} busy={busy} submit="Salvar" />
@@ -274,10 +319,10 @@ export function RetifModal({
           />
         </Field>
         <Field label="Nova data limite (opcional)">
-          <input type="date" className={input} value={data} onChange={(e) => setData(e.target.value)} />
+          <DateInput className={input} value={data} onChange={setData} />
         </Field>
-        <Field label="Novo horário (opcional)">
-          <input type="time" className={input} value={hora} onChange={(e) => setHora(e.target.value)} />
+        <Field label="Novo horário 24h (opcional)">
+          <TimeInput className={input} value={hora} onChange={setHora} />
         </Field>
         <div className="col-span-2">
           <Actions onClose={onClose} busy={busy} submit="Registrar" danger />
@@ -288,8 +333,6 @@ export function RetifModal({
 }
 
 // ---------- Histórico ----------
-const fmtTs = (ts: number) => (ts ? new Date(ts).toLocaleString('pt-BR') : '')
-
 export function HistModal({ edital, onClose }: { edital: Edital; onClose: () => void }) {
   return (
     <Modal title={`Histórico — ${edital.num}`} icon="history" onClose={onClose}>
@@ -356,7 +399,7 @@ export function HistModal({ edital, onClose }: { edital: Edital; onClose: () => 
 }
 
 // ---------- Relatório ----------
-export function ReportModal({ editais, onExport, onClose }: { editais: Edital[]; onExport: () => void; onClose: () => void }) {
+export function ReportModal({ editais, statuses, onExport, onClose }: { editais: Edital[]; statuses: StatusCfg[]; onExport: () => void; onClose: () => void }) {
   const sum = (a: Edital[]) => a.reduce((s, x) => s + x.valorGanho, 0)
   return (
     <Modal title="Relatório Resumido" icon="query_stats" onClose={onClose}>
@@ -369,11 +412,11 @@ export function ReportModal({ editais, onExport, onClose }: { editais: Edital[];
           </tr>
         </thead>
         <tbody>
-          {STATUS_KEYS.map((k) => {
-            const l = editais.filter((x) => x.status === k)
+          {statuses.map((s) => {
+            const l = editais.filter((x) => x.status === s.id)
             return (
-              <tr key={k}>
-                <td className="py-1">{STATUS[k]}</td>
+              <tr key={s.id}>
+                <td className="py-1">{s.nome}</td>
                 <td className="text-right font-data-mono">{l.length}</td>
                 <td className="text-right font-data-mono">{brl(sum(l))}</td>
               </tr>
@@ -528,14 +571,17 @@ interface UserFormValue {
   cargo: string
   senha: string
   papel: Papel
+  portais: number[] | null
 }
 
 function UserForm({
   initial,
+  portais,
   onSubmit,
   onCancel,
 }: {
   initial?: PublicUser
+  portais: Portal[]
   onSubmit: (v: UserFormValue) => Promise<boolean>
   onCancel: () => void
 }) {
@@ -546,6 +592,7 @@ function UserForm({
     cargo: initial?.cargo ?? '',
     senha: '',
     papel: initial?.papel ?? 'usuario',
+    portais: initial?.portais ?? null,
   })
   const [busy, setBusy] = useState(false)
   const set = <K extends keyof UserFormValue>(k: K, v: UserFormValue[K]) => setF((p) => ({ ...p, [k]: v }))
@@ -583,6 +630,37 @@ function UserForm({
       <Field label="Cargo">
         <input maxLength={80} className={input} value={f.cargo} onChange={(e) => set('cargo', e.target.value)} />
       </Field>
+      {f.papel === 'usuario' && (
+        <div className="col-span-2 flex flex-col gap-2 rounded-lg border border-surface-container p-space-sm">
+          <span className={labelCls}>Portais que este usuário enxerga</span>
+          <label className="flex cursor-pointer items-center gap-2 text-body-sm">
+            <input type="radio" name="portais-modo" checked={f.portais === null} onChange={() => set('portais', null)} />
+            Todos os portais (inclusive os cadastrados no futuro)
+          </label>
+          <label className="flex cursor-pointer items-center gap-2 text-body-sm">
+            <input type="radio" name="portais-modo" checked={f.portais !== null} onChange={() => set('portais', f.portais ?? [])} />
+            Somente os selecionados
+          </label>
+          {f.portais !== null && (
+            <div className="grid grid-cols-2 gap-1 pl-6">
+              {portais.length === 0 && <span className="col-span-2 text-body-sm text-outline">Nenhum portal cadastrado.</span>}
+              {portais.map((p) => (
+                <label key={p.id} className="flex cursor-pointer items-center gap-2 text-body-sm">
+                  <input
+                    type="checkbox"
+                    checked={f.portais!.includes(p.id)}
+                    onChange={(e) => set('portais', e.target.checked ? [...f.portais!, p.id] : f.portais!.filter((x) => x !== p.id))}
+                  />
+                  {p.nome}
+                </label>
+              ))}
+            </div>
+          )}
+          <span className="text-[11px] text-outline">
+            O usuário só vê esses portais e os editais deles (e editais sem portal). Administradores sempre veem tudo.
+          </span>
+        </div>
+      )}
       <Field label={editing ? 'Nova senha (deixe vazio para manter)' : 'Senha (mín. 6)'} className="col-span-2">
         <input
           required={!editing}
@@ -605,6 +683,7 @@ type UsersMode = { k: 'list' } | { k: 'new' } | { k: 'edit'; user: PublicUser }
 export function UsersModal({
   me,
   users,
+  portais,
   onCreate,
   onUpdate,
   onDelete,
@@ -612,6 +691,7 @@ export function UsersModal({
 }: {
   me: PublicUser
   users: PublicUser[]
+  portais: Portal[]
   onCreate: (v: NewUser) => Promise<boolean>
   onUpdate: (id: number, v: UserPatch) => Promise<boolean>
   onDelete: (u: PublicUser) => void
@@ -623,7 +703,7 @@ export function UsersModal({
   if (mode.k === 'new') {
     return (
       <Modal title="Novo usuário" icon="person_add" onClose={onClose}>
-        <UserForm onSubmit={(v) => onCreate(v)} onCancel={back} />
+        <UserForm portais={portais} onSubmit={(v) => onCreate(v)} onCancel={back} />
       </Modal>
     )
   }
@@ -633,8 +713,9 @@ export function UsersModal({
       <Modal title={`Editar @${target.usuario}`} icon="manage_accounts" onClose={onClose}>
         <UserForm
           initial={target}
+          portais={portais}
           onSubmit={(v) =>
-            onUpdate(target.id, { nome: v.nome, cargo: v.cargo, papel: v.papel, ...(v.senha ? { senha: v.senha } : {}) })
+            onUpdate(target.id, { nome: v.nome, cargo: v.cargo, papel: v.papel, portais: v.portais, ...(v.senha ? { senha: v.senha } : {}) })
           }
           onCancel={back}
         />
@@ -657,6 +738,9 @@ export function UsersModal({
                   <span className="rounded bg-secondary-container/40 px-1.5 text-[10px] font-bold text-on-secondary-container">ADMIN</span>
                 )}
                 {u.id === me.id && <span className="rounded bg-surface-container px-1.5 text-[10px] font-bold text-on-surface">VOCÊ</span>}
+                {u.papel !== 'admin' && u.portais !== null && (
+                  <span className="rounded bg-surface-container px-1.5 text-[10px] font-bold text-on-surface">{u.portais.length} PORTAL(IS)</span>
+                )}
               </div>
               <div className="truncate text-body-sm text-outline">
                 @{u.usuario}

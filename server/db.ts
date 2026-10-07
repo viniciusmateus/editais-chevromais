@@ -19,20 +19,31 @@ import path from 'node:path'
 import { createHash, randomBytes, scrypt, timingSafeEqual } from 'node:crypto'
 import { promisify } from 'node:util'
 import {
-  STATUS_KEYS,
+  CAMPOS_PORTAL,
+  CATEGORIAS_INICIAIS,
+  PORTAIS_INICIAIS,
+  REGRAS_PADRAO,
+  STATUS_INICIAIS,
+  STATUS_FIXOS,
   MODALIDADES,
-  STATUS,
   RESULTADOS,
+  camposFaltando,
+  horaValida,
+  isoValida,
   type LogEntry,
   type LogMudanca,
   type AppState,
   type AuthStatus,
-  type Categoria,
+  type CategoriaCfg,
+  type Portal,
+  type Regra,
+  type RegrasCampos,
   type Edital,
   type EditalInput,
   type Modalidade,
   type Papel,
   type PublicUser,
+  type StatusCfg,
   type StatusKey,
   type Unchanged,
 } from '../src/shared'
@@ -55,9 +66,13 @@ interface DbFile {
   rev: number
   nextId: number
   nextUserId: number
+  nextPortalId: number
   users: UserRecord[]
   sessions: SessionRecord[]
   editais: Edital[]
+  portais: Portal[]
+  categorias: CategoriaCfg[]
+  statuses: StatusCfg[]
   legacy?: { nome: string; cargo: string }
 }
 
@@ -71,8 +86,7 @@ export const dbPath = DB_FILE
 const SESSION_MS = 30 * 24 * 3600 * 1000
 const MAX_SESSIONS_PER_USER = 20
 const USER_RE = /^[a-z0-9._-]{3,32}$/
-const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
-const TIME_RE = /^\d{2}:\d{2}$/
+const COR_RE = /^#[0-9a-fA-F]{6}$/
 
 // ---------- erros (a API converte em códigos HTTP) ----------
 export class ValidationError extends Error {} // 400
@@ -81,15 +95,74 @@ export class ForbiddenError extends Error {} // 403
 export class NotFoundError extends Error {} // 404
 export class ConflictError extends Error {} // 409
 
-const emptyDb = (): DbFile => ({ version: 2, rev: 0, nextId: 1, nextUserId: 1, users: [], sessions: [], editais: [] })
+const novasRegras = (): RegrasCampos => ({ ...REGRAS_PADRAO })
+const emptyDb = (): DbFile => ({
+  version: 2,
+  rev: 0,
+  nextId: 1,
+  nextUserId: 1,
+  nextPortalId: 1,
+  users: [],
+  sessions: [],
+  editais: [],
+  portais: [],
+  categorias: CATEGORIAS_INICIAIS.map((c) => ({ ...c })),
+  statuses: STATUS_INICIAIS.map((s) => ({ ...s })),
+})
 
 let cache: DbFile | null = null
 let queue: Promise<unknown> = Promise.resolve()
 
 // ---------- utilidades ----------
 const sha256 = (s: string) => createHash('sha256').update(s).digest('hex')
-const pub = (u: UserRecord): PublicUser => ({ id: u.id, usuario: u.usuario, nome: u.nome, cargo: u.cargo, papel: u.papel })
+const pub = (u: UserRecord): PublicUser => ({ id: u.id, usuario: u.usuario, nome: u.nome, cargo: u.cargo, papel: u.papel, portais: u.portais })
 const who = (u: UserRecord) => u.nome || u.usuario
+
+const REGRA_VALORES: Regra[] = ['oculto', 'opcional', 'obrigatorio']
+
+/** Lê regras gravadas no banco ignorando o que for inválido. */
+function cleanRegrasLenient(v: any): Partial<RegrasCampos> {
+  const out: Partial<RegrasCampos> = {}
+  for (const c of CAMPOS_PORTAL) {
+    const r = v?.[c.key]
+    if (REGRA_VALORES.includes(r) && !(r === 'obrigatorio' && 'semObrigatorio' in c)) out[c.key] = r
+  }
+  return out
+}
+
+function cleanRegras(v: any): RegrasCampos {
+  if (!v || typeof v !== 'object') throw new ValidationError('Regras dos campos ausentes')
+  const out = novasRegras()
+  for (const c of CAMPOS_PORTAL) {
+    const r = v[c.key]
+    if (!REGRA_VALORES.includes(r)) throw new ValidationError(`Regra inválida para o campo ${c.label}`)
+    if (r === 'obrigatorio' && 'semObrigatorio' in c) throw new ValidationError(`O campo ${c.label} não pode ser obrigatório`)
+    out[c.key] = r
+  }
+  return out
+}
+
+/** Lista de portais de um usuário: array de ids existentes ou null (todos). */
+function cleanPortaisUser(d: DbFile, v: unknown): number[] | null {
+  if (v === null || v === undefined) return null
+  if (!Array.isArray(v)) throw new ValidationError('Lista de portais inválida')
+  const ids = [...new Set(v.map(Number))]
+  if (ids.some((i) => !d.portais.some((p) => p.id === i))) throw new ValidationError('Portal inválido na lista do usuário')
+  return ids
+}
+
+/** Devolve a lista na ordem dos ids informados (que precisam ser exatamente os itens existentes). */
+function reordenar<T extends { id: string }>(lista: T[], ids: unknown): T[] {
+  if (!Array.isArray(ids) || ids.length !== lista.length || new Set(ids).size !== ids.length) throw new ValidationError('Ordem inválida')
+  const out = ids.map((id) => lista.find((x) => x.id === id))
+  if (out.some((x) => !x)) throw new ValidationError('Ordem inválida')
+  return out as T[]
+}
+
+function cleanCor(v: unknown): string {
+  if (typeof v !== 'string' || !COR_RE.test(v)) throw new ValidationError('Cor inválida')
+  return v.toLowerCase()
+}
 
 function str(v: unknown, field: string, required: boolean, max = 2000): string {
   const s = typeof v === 'string' ? v.trim() : ''
@@ -115,22 +188,62 @@ function normalize(raw: any): DbFile {
       atualizadoPor: typeof e.atualizadoPor === 'string' ? e.atualizadoPor : '',
       atualizadoEm: Number(e.atualizadoEm) || 0,
       portal: typeof e.portal === 'string' ? e.portal : '',
+      cidade: typeof e.cidade === 'string' ? e.cidade : '',
       resultado: e.resultado === 'GANHAMOS' || e.resultado === 'PERDEMOS' ? e.resultado : '',
       log: Array.isArray(e.log) ? e.log : [],
       valorGanho: Number.isFinite(ganho) && ganho > 0 ? ganho : 0,
     }
   })
-  const users: UserRecord[] = (Array.isArray(raw.users) ? raw.users : []).filter(
-    (u: any) => u && typeof u.usuario === 'string' && typeof u.hash === 'string' && typeof u.salt === 'string',
-  )
+  const users: UserRecord[] = (Array.isArray(raw.users) ? raw.users : [])
+    .filter((u: any) => u && typeof u.usuario === 'string' && typeof u.hash === 'string' && typeof u.salt === 'string')
+    .map((u: any) => ({ ...u, portais: Array.isArray(u.portais) ? u.portais.map(Number).filter(Number.isInteger) : null }))
   const now = Date.now()
   const sessions: SessionRecord[] = (Array.isArray(raw.sessions) ? raw.sessions : []).filter(
     (s: any) => s && typeof s.id === 'string' && s.expires > now,
   )
 
+  // categorias: as cadastradas; bancos antigos recebem Tintas e Pneus
+  const categorias: CategoriaCfg[] = (Array.isArray(raw.categorias) ? raw.categorias : [])
+    .filter((c: any) => c && typeof c.id === 'string' && c.id && typeof c.nome === 'string')
+    .map((c: any) => ({ id: c.id, nome: c.nome, cor: COR_RE.test(c.cor) ? c.cor : '#64748b' }))
+  if (!Array.isArray(raw.categorias)) categorias.push(...CATEGORIAS_INICIAIS.map((c) => ({ ...c })))
+  // edital apontando para categoria inexistente: recria a categoria em vez de perder o vínculo
+  for (const e of editais) {
+    if (!categorias.some((c) => c.id === e.cat)) categorias.push({ id: String(e.cat), nome: String(e.cat), cor: '#64748b' })
+  }
+
+  // portais: os cadastrados; bancos antigos recebem a lista fixa + os nomes já usados nos editais
+  let portais: Portal[] = (Array.isArray(raw.portais) ? raw.portais : [])
+    .filter((p: any) => p && Number.isInteger(p.id) && typeof p.nome === 'string' && p.nome)
+    .map((p: any) => ({ id: p.id, nome: p.nome, campos: { ...REGRAS_PADRAO, ...cleanRegrasLenient(p.campos) } }))
+  let nextPortalId = Math.max(Number(raw.nextPortalId) || 1, ...portais.map((p) => p.id + 1))
+  if (!Array.isArray(raw.portais)) {
+    const nomes = [...PORTAIS_INICIAIS, ...editais.map((e) => e.portal)].filter(Boolean)
+    portais = []
+    for (const nome of nomes) {
+      if (!portais.some((p) => p.nome.toLowerCase() === nome.toLowerCase())) portais.push({ id: nextPortalId++, nome, campos: novasRegras() })
+    }
+  }
+
+  // ids de portais que já não existem saem da lista dos usuários
+  for (const u of users) if (u.portais) u.portais = u.portais.filter((id) => portais.some((p) => p.id === id))
+
+  // status: os cadastrados; bancos antigos recebem os 5 originais
+  const statuses: StatusCfg[] = (Array.isArray(raw.statuses) ? raw.statuses : [])
+    .filter((s: any) => s && typeof s.id === 'string' && s.id && typeof s.nome === 'string')
+    .map((s: any) => ({ id: s.id, nome: s.nome, cor: COR_RE.test(s.cor) ? s.cor : '#64748b' }))
+  if (!Array.isArray(raw.statuses)) statuses.push(...STATUS_INICIAIS.map((s) => ({ ...s })))
+  for (const id of [...STATUS_FIXOS, ...editais.map((e) => e.status)]) {
+    if (!statuses.some((s) => s.id === id)) statuses.push(STATUS_INICIAIS.find((s) => s.id === id) ?? { id: String(id), nome: String(id), cor: '#64748b' })
+  }
+
   const out: DbFile = {
     version: 2,
     rev: Number(raw.rev) || 0,
+    statuses,
+    nextPortalId,
+    portais,
+    categorias,
     nextId: Math.max(Number(raw.nextId) || 1, ...editais.map((e) => (Number(e.id) || 0) + 1)),
     nextUserId: Math.max(Number(raw.nextUserId) || 1, ...users.map((u) => (Number(u.id) || 0) + 1)),
     users,
@@ -241,25 +354,24 @@ function cleanPapel(v: unknown): Papel {
   return v
 }
 
+/** Só valida o formato. Quais campos são obrigatórios depende do portal e é conferido dentro da gravação. */
 function parseEdital(body: any, partial: boolean): Partial<EditalInput> {
   if (!body || typeof body !== 'object') throw new ValidationError('Corpo inválido')
   const out: Partial<EditalInput> = {}
   const has = (k: string) => !partial || body[k] !== undefined
 
-  if (has('cat')) {
-    if (body.cat !== 'TINTAS' && body.cat !== 'PNEUS') throw new ValidationError('Categoria inválida')
-    out.cat = body.cat as Categoria
-  }
+  if (has('cat')) out.cat = str(body.cat, 'Categoria', true, 60)
   if (has('mod')) {
     const m = Number(body.mod ?? 0)
     if (![0, 1, 2].includes(m)) throw new ValidationError('Modalidade inválida')
     out.mod = m as Modalidade
   }
-  if (has('num')) out.num = str(body.num, 'Nº do edital', true, 80)
-  if (has('uasg')) out.uasg = str(body.uasg, 'UASG / Nº de identificação', true, 80) // texto livre: qualquer número ou formato
-  if (has('orgao')) out.orgao = str(body.orgao, 'Órgão comprador', true, 200)
-  if (has('uf')) out.uf = str(body.uf, 'UF', true, 2).toUpperCase()
-  if (has('objeto')) out.objeto = str(body.objeto, 'Objeto', true, 2000)
+  if (has('num')) out.num = str(body.num, 'Nº do edital', false, 80)
+  if (has('uasg')) out.uasg = str(body.uasg, 'UASG / Nº de identificação', false, 80) // texto livre: qualquer número ou formato
+  if (has('orgao')) out.orgao = str(body.orgao, 'Órgão comprador', false, 200)
+  if (has('cidade')) out.cidade = str(body.cidade, 'Cidade', false, 80)
+  if (has('uf')) out.uf = str(body.uf, 'UF', false, 2).toUpperCase()
+  if (has('objeto')) out.objeto = str(body.objeto, 'Objeto', false, 2000)
   if (has('valorGanho')) {
     const v = Number(body.valorGanho ?? 0)
     if (!Number.isFinite(v) || v < 0 || v > 1e12) throw new ValidationError('Valor ganho inválido')
@@ -268,17 +380,16 @@ function parseEdital(body: any, partial: boolean): Partial<EditalInput> {
   if (has('portal')) out.portal = str(body.portal, 'Portal', false, 60)
   if (has('data')) {
     const d = str(body.data, 'Data', false, 10)
-    if (d && !DATE_RE.test(d)) throw new ValidationError('Data inválida')
+    if (d && !isoValida(d)) throw new ValidationError('Data inválida')
     out.data = d
   }
   if (has('hora')) {
     const h = str(body.hora, 'Horário', false, 5)
-    if (h && !TIME_RE.test(h)) throw new ValidationError('Horário inválido')
+    if (h && !horaValida(h)) throw new ValidationError('Horário inválido (use 24 horas, HH:mm)')
     out.hora = h
   }
   if (has('status')) {
-    if (!STATUS_KEYS.includes(body.status)) throw new ValidationError('Status inválido')
-    out.status = body.status as StatusKey
+    out.status = str(body.status, 'Status', true, 60)
   }
   if (has('resultado')) {
     const r = body.resultado ?? ''
@@ -288,6 +399,33 @@ function parseEdital(body: any, partial: boolean): Partial<EditalInput> {
   return out
 }
 
+/** Regras do portal pelo nome; sem portal (ou portal que já não está cadastrado) valem as regras padrão. */
+const regrasDo = (d: DbFile, nome: string): RegrasCampos => d.portais.find((p) => p.nome === nome)?.campos ?? REGRAS_PADRAO
+
+/** Portais que o usuário pode usar (pelo nome); null = todos. */
+function portaisPermitidos(d: DbFile, u: UserRecord): Set<string> | null {
+  if (u.papel === 'admin' || u.portais === null) return null
+  return new Set(d.portais.filter((p) => u.portais!.includes(p.id)).map((p) => p.nome))
+}
+
+/** Usuário restrito enxerga os editais dos portais dele e os sem portal. */
+const enxerga = (perm: Set<string> | null, e: Pick<Edital, 'portal'>) => !perm || !e.portal || perm.has(e.portal)
+
+/**
+ * Confere categoria, status, portal e campos obrigatórios do edital já com as alterações aplicadas.
+ * Valor ganho e resultado só existem na edição: ao criar, não são exigidos.
+ */
+function conferirEdital(d: DbFile, v: EditalInput, perm: Set<string> | null, portalAnterior?: string, criando = false): void {
+  if (!d.categorias.some((c) => c.id === v.cat)) throw new ValidationError('Categoria inválida: escolha uma categoria cadastrada')
+  if (!d.statuses.some((s) => s.id === v.status)) throw new ValidationError('Status inválido')
+  if (v.portal && v.portal !== portalAnterior) {
+    if (!d.portais.some((p) => p.nome === v.portal)) throw new ValidationError('Portal não cadastrado. Cadastre-o no painel Portais.')
+    if (perm && !perm.has(v.portal)) throw new ForbiddenError('Você não tem acesso a este portal')
+  }
+  const falta = camposFaltando(regrasDo(d, v.portal), v, criando ? ['valorGanho', 'resultado'] : [])
+  if (falta.length) throw new ValidationError(`Campo${falta.length > 1 ? 's' : ''} obrigatório${falta.length > 1 ? 's' : ''}: ${falta.join(', ')}`)
+}
+
 const dayDiff = (from: string, to: string) =>
   Math.round((Date.parse(to + 'T00:00:00Z') - Date.parse(from + 'T00:00:00Z')) / 86_400_000)
 
@@ -295,7 +433,20 @@ const dayDiff = (from: string, to: string) =>
 function view(d: DbFile, userId: number): AppState {
   const me = d.users.find((u) => u.id === userId)
   if (!me) throw new AuthError('Sessão inválida')
-  return { rev: d.rev, me: pub(me), users: me.papel === 'admin' ? d.users.map(pub) : [], editais: d.editais }
+  return {
+    rev: d.rev,
+    me: pub(me),
+    users: me.papel === 'admin' ? d.users.map(pub) : [],
+    ...(() => {
+      const perm = portaisPermitidos(d, me)
+      return {
+        editais: d.editais.filter((e) => enxerga(perm, e)),
+        portais: perm ? d.portais.filter((p) => perm.has(p.nome)) : d.portais,
+      }
+    })(),
+    categorias: d.categorias,
+    statuses: d.statuses,
+  }
 }
 
 /** Reconfirma, dentro da gravação, que o usuário ainda existe (e ainda é admin, se preciso). */
@@ -309,25 +460,26 @@ function actorIn(d: DbFile, user: UserRecord, needAdmin = false): UserRecord {
 // ----- histórico fixo -----
 const CAMPOS: Array<[keyof EditalInput, string]> = [
   ['cat', 'Categoria'], ['num', 'Nº do edital'], ['uasg', 'UASG / Nº de identificação'], ['portal', 'Portal'],
-  ['orgao', 'Órgão comprador'], ['uf', 'UF'], ['objeto', 'Objeto'], ['mod', 'Modalidade'],
+  ['orgao', 'Órgão comprador'], ['cidade', 'Cidade'], ['uf', 'UF'], ['objeto', 'Objeto'], ['mod', 'Modalidade'],
   ['data', 'Data limite'], ['hora', 'Horário'], ['status', 'Status'], ['resultado', 'Resultado'], ['valorGanho', 'Valor ganho'],
 ]
 const BRL = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' })
-function mostra(k: keyof EditalInput, v: any): string {
+function mostra(d: DbFile, k: keyof EditalInput, v: any): string {
   if (k === 'mod') return MODALIDADES[v as Modalidade] ?? String(v)
-  if (k === 'status') return STATUS[v as StatusKey] ?? String(v)
+  if (k === 'status') return d.statuses.find((s) => s.id === v)?.nome ?? String(v)
   if (k === 'resultado') return v ? RESULTADOS[v as 'GANHAMOS' | 'PERDEMOS'] : 'Em andamento'
-  if (k === 'cat') return v === 'TINTAS' ? 'Tintas' : 'Pneus'
+  if (k === 'cat') return d.categorias.find((c) => c.id === v)?.nome ?? String(v)
   if (k === 'valorGanho') return v ? BRL.format(v) : '—'
   if (k === 'data') return v ? String(v).split('-').reverse().join('/') : 'A definir'
+  if (k === 'hora') return v ? `${v}h` : '—'
   return v === '' || v == null ? '—' : String(v)
 }
 /** Compara o edital atual com o que vai ser gravado e lista só o que mudou. */
-function diffEdital(e: Edital, patch: Partial<EditalInput>): LogMudanca[] {
+function diffEdital(d: DbFile, e: Edital, patch: Partial<EditalInput>): LogMudanca[] {
   const out: LogMudanca[] = []
   for (const [k, campo] of CAMPOS) {
     if (patch[k] === undefined || patch[k] === (e as any)[k]) continue
-    out.push({ campo, de: mostra(k, (e as any)[k]), para: mostra(k, patch[k]) })
+    out.push({ campo, de: mostra(d, k, (e as any)[k]), para: mostra(d, k, patch[k]) })
   }
   return out
 }
@@ -362,7 +514,7 @@ export const db = {
     const pw = await hashPassword(senha)
     return mutate((d) => {
       if (d.users.length) throw new ForbiddenError('O sistema já foi configurado. Entre com seu usuário.')
-      const u: UserRecord = { id: d.nextUserId++, usuario, nome, cargo, papel: 'admin', ...pw, criadoEm: Date.now() }
+      const u: UserRecord = { id: d.nextUserId++, usuario, nome, cargo, papel: 'admin', portais: null, ...pw, criadoEm: Date.now() }
       d.users.push(u)
       return { token: addSession(d, u.id), user: pub(u) }
     })
@@ -446,7 +598,7 @@ export const db = {
     return mutate((d) => {
       const me = actorIn(d, admin, true)
       if (d.users.some((u) => u.usuario === usuario)) throw new ValidationError('Já existe um usuário com esse login')
-      d.users.push({ id: d.nextUserId++, usuario, nome, cargo, papel, ...pw, criadoEm: Date.now() })
+      d.users.push({ id: d.nextUserId++, usuario, nome, cargo, papel, portais: cleanPortaisUser(d, body?.portais), ...pw, criadoEm: Date.now() })
       return view(d, me.id)
     })
   },
@@ -467,6 +619,7 @@ export const db = {
       if (nome !== undefined) t.nome = nome
       if (cargo !== undefined) t.cargo = cargo
       if (papel) t.papel = papel
+      if (body?.portais !== undefined) t.portais = cleanPortaisUser(d, body.portais)
       if (pw) {
         Object.assign(t, pw)
         d.sessions = d.sessions.filter((s) => s.userId !== t.id) // senha trocada pelo admin: derruba as sessões dele
@@ -489,9 +642,11 @@ export const db = {
 
   // ===== editais (todos os usuários enxergam e alteram os mesmos dados) =====
   createEdital(user: UserRecord, body: any): Promise<AppState> {
-    const v = parseEdital({ mod: 0, valorGanho: 0, portal: '', data: '', hora: '', status: 'PREP', resultado: '', ...body }, false) as EditalInput
+    // valor ganho e resultado só são preenchidos na edição
+    const v = parseEdital({ mod: 0, cidade: '', portal: '', data: '', hora: '', status: 'PREP', ...body, valorGanho: 0, resultado: '' }, false) as EditalInput
     return mutate((d) => {
       const me = actorIn(d, user)
+      conferirEdital(d, v, portaisPermitidos(d, me), undefined, true)
       const novo: Edital = { id: d.nextId++, retifs: [], log: [], v: 1, criadoPor: who(me), atualizadoPor: who(me), atualizadoEm: Date.now(), ...v }
       addLog(novo, me, 'criou', [])
       d.editais.push(novo)
@@ -506,13 +661,16 @@ export const db = {
     return mutate((d) => {
       const me = actorIn(d, user)
       const e = d.editais.find((x) => x.id === id)
-      if (!e) throw new NotFoundError('Edital não encontrado')
+      if (!e || !enxerga(portaisPermitidos(d, me), e)) throw new NotFoundError('Edital não encontrado')
       if (expectedV !== undefined && expectedV !== e.v) {
         throw new ConflictError(
           `${e.atualizadoPor || 'Outro usuário'} alterou este edital enquanto você editava. Os dados na tela foram atualizados — revise e salve de novo para sobrescrever.`,
         )
       }
-      const mudancas = diffEdital(e, patch)
+      // o formulário completo (que traz categoria e portal) é conferido contra as regras do portal; trocas rápidas (status, resultado) não
+      if (patch.cat !== undefined || patch.portal !== undefined) conferirEdital(d, { ...e, ...patch } as EditalInput, portaisPermitidos(d, me), e.portal)
+      else if (patch.status !== undefined && !d.statuses.some((s) => s.id === patch.status)) throw new ValidationError('Status inválido')
+      const mudancas = diffEdital(d, e, patch)
       Object.assign(e, patch)
       if (mudancas.length) addLog(e, me, 'alterou', mudancas)
       stamp(e, me)
@@ -524,7 +682,8 @@ export const db = {
     const set = new Set(ids.map(Number))
     return mutate((d) => {
       const me = actorIn(d, user)
-      d.editais = d.editais.filter((e) => !set.has(e.id))
+      const perm = portaisPermitidos(d, me)
+      d.editais = d.editais.filter((e) => !(set.has(e.id) && enxerga(perm, e)))
       return view(d, me.id)
     })
   },
@@ -533,14 +692,14 @@ export const db = {
     const desc = str(body?.desc, 'Descrição', true, 1000)
     const data = str(body?.data, 'Data', false, 10)
     const hora = str(body?.hora, 'Horário', false, 5)
-    if (data && !DATE_RE.test(data)) throw new ValidationError('Data inválida')
-    if (hora && !TIME_RE.test(hora)) throw new ValidationError('Horário inválido')
+    if (data && !isoValida(data)) throw new ValidationError('Data inválida')
+    if (hora && !horaValida(hora)) throw new ValidationError('Horário inválido (use 24 horas, HH:mm)')
     return mutate((d) => {
       const me = actorIn(d, user)
       const e = d.editais.find((x) => x.id === id)
-      if (!e) throw new NotFoundError('Edital não encontrado')
+      if (!e || !enxerga(portaisPermitidos(d, me), e)) throw new NotFoundError('Edital não encontrado')
       let dias = 0
-      const mudancas = diffEdital(e, { data: data || undefined, hora: hora || undefined, status: 'RETIF' })
+      const mudancas = diffEdital(d, e, { data: data || undefined, hora: hora || undefined, status: 'RETIF' })
       if (data && data !== e.data) {
         if (e.data) dias = Math.max(dayDiff(e.data, data), 0)
         e.data = data
@@ -550,6 +709,144 @@ export const db = {
       e.status = 'RETIF'
       addLog(e, me, 'retificou', mudancas, desc)
       stamp(e, me)
+      return view(d, me.id)
+    })
+  },
+
+  // ===== portais (administrador) =====
+  createPortal(admin: UserRecord, body: any): Promise<AppState> {
+    const nome = str(body?.nome, 'Nome do portal', true, 60)
+    const campos = cleanRegras(body?.campos)
+    return mutate((d) => {
+      const me = actorIn(d, admin, true)
+      if (d.portais.some((p) => p.nome.toLowerCase() === nome.toLowerCase())) throw new ValidationError('Já existe um portal com esse nome')
+      d.portais.push({ id: d.nextPortalId++, nome, campos })
+      return view(d, me.id)
+    })
+  },
+
+  updatePortal(admin: UserRecord, id: number, body: any): Promise<AppState> {
+    const nome = str(body?.nome, 'Nome do portal', true, 60)
+    const campos = cleanRegras(body?.campos)
+    return mutate((d) => {
+      const me = actorIn(d, admin, true)
+      const p = d.portais.find((x) => x.id === id)
+      if (!p) throw new NotFoundError('Portal não encontrado')
+      if (d.portais.some((x) => x.id !== id && x.nome.toLowerCase() === nome.toLowerCase())) throw new ValidationError('Já existe um portal com esse nome')
+      if (nome !== p.nome) for (const e of d.editais) if (e.portal === p.nome) e.portal = nome // os editais acompanham o novo nome
+      p.nome = nome
+      p.campos = campos
+      return view(d, me.id)
+    })
+  },
+
+  /** Os editais que usavam o portal mantêm o nome dele no registro. */
+  deletePortal(admin: UserRecord, id: number): Promise<AppState> {
+    return mutate((d) => {
+      const me = actorIn(d, admin, true)
+      if (!d.portais.some((p) => p.id === id)) throw new NotFoundError('Portal não encontrado')
+      d.portais = d.portais.filter((p) => p.id !== id)
+      for (const u of d.users) if (u.portais) u.portais = u.portais.filter((x) => x !== id)
+      return view(d, me.id)
+    })
+  },
+
+  // ===== categorias (administrador) =====
+  createCategoria(admin: UserRecord, body: any): Promise<AppState> {
+    const nome = str(body?.nome, 'Nome da categoria', true, 40)
+    const cor = cleanCor(body?.cor)
+    return mutate((d) => {
+      const me = actorIn(d, admin, true)
+      if (d.categorias.some((c) => c.nome.toLowerCase() === nome.toLowerCase())) throw new ValidationError('Já existe uma categoria com esse nome')
+      const base = nome.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/[^A-Z0-9]+/g, '-').replace(/^-|-$/g, '') || 'CAT'
+      let id = base
+      for (let i = 2; d.categorias.some((c) => c.id === id); i++) id = `${base}-${i}`
+      d.categorias.push({ id, nome, cor })
+      return view(d, me.id)
+    })
+  },
+
+  updateCategoria(admin: UserRecord, id: string, body: any): Promise<AppState> {
+    const nome = str(body?.nome, 'Nome da categoria', true, 40)
+    const cor = cleanCor(body?.cor)
+    return mutate((d) => {
+      const me = actorIn(d, admin, true)
+      const c = d.categorias.find((x) => x.id === id)
+      if (!c) throw new NotFoundError('Categoria não encontrada')
+      if (d.categorias.some((x) => x.id !== id && x.nome.toLowerCase() === nome.toLowerCase())) throw new ValidationError('Já existe uma categoria com esse nome')
+      c.nome = nome
+      c.cor = cor
+      return view(d, me.id)
+    })
+  },
+
+  deleteCategoria(admin: UserRecord, id: string): Promise<AppState> {
+    return mutate((d) => {
+      const me = actorIn(d, admin, true)
+      if (!d.categorias.some((c) => c.id === id)) throw new NotFoundError('Categoria não encontrada')
+      if (d.categorias.length === 1) throw new ValidationError('É preciso manter pelo menos uma categoria')
+      const usados = d.editais.filter((e) => e.cat === id).length
+      if (usados) {
+        throw new ValidationError(`Esta categoria é usada por ${usados} edital(is). Mude a categoria deles (ou exclua-os) antes de remover a categoria.`)
+      }
+      d.categorias = d.categorias.filter((c) => c.id !== id)
+      return view(d, me.id)
+    })
+  },
+
+  reordenarCategorias(admin: UserRecord, body: any): Promise<AppState> {
+    return mutate((d) => {
+      const me = actorIn(d, admin, true)
+      d.categorias = reordenar(d.categorias, body?.ids)
+      return view(d, me.id)
+    })
+  },
+
+  reordenarStatus(admin: UserRecord, body: any): Promise<AppState> {
+    return mutate((d) => {
+      const me = actorIn(d, admin, true)
+      d.statuses = reordenar(d.statuses, body?.ids)
+      return view(d, me.id)
+    })
+  },
+
+  // ===== status (administrador) =====
+  createStatus(admin: UserRecord, body: any): Promise<AppState> {
+    const nome = str(body?.nome, 'Nome do status', true, 40)
+    const cor = cleanCor(body?.cor)
+    return mutate((d) => {
+      const me = actorIn(d, admin, true)
+      if (d.statuses.some((s) => s.nome.toLowerCase() === nome.toLowerCase())) throw new ValidationError('Já existe um status com esse nome')
+      const base = nome.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/[^A-Z0-9]+/g, '-').replace(/^-|-$/g, '') || 'STATUS'
+      let id = base
+      for (let i = 2; d.statuses.some((s) => s.id === id); i++) id = `${base}-${i}`
+      d.statuses.push({ id, nome, cor })
+      return view(d, me.id)
+    })
+  },
+
+  updateStatus(admin: UserRecord, id: string, body: any): Promise<AppState> {
+    const nome = str(body?.nome, 'Nome do status', true, 40)
+    const cor = cleanCor(body?.cor)
+    return mutate((d) => {
+      const me = actorIn(d, admin, true)
+      const s = d.statuses.find((x) => x.id === id)
+      if (!s) throw new NotFoundError('Status não encontrado')
+      if (d.statuses.some((x) => x.id !== id && x.nome.toLowerCase() === nome.toLowerCase())) throw new ValidationError('Já existe um status com esse nome')
+      s.nome = nome
+      s.cor = cor
+      return view(d, me.id)
+    })
+  },
+
+  deleteStatus(admin: UserRecord, id: string): Promise<AppState> {
+    return mutate((d) => {
+      const me = actorIn(d, admin, true)
+      if (!d.statuses.some((s) => s.id === id)) throw new NotFoundError('Status não encontrado')
+      if (STATUS_FIXOS.includes(id)) throw new ValidationError('Este status é usado pelo sistema (inicial de todo edital novo / aplicado nas retificações). Você pode renomeá-lo, mas não excluí-lo.')
+      const usados = d.editais.filter((e) => e.status === id).length
+      if (usados) throw new ValidationError(`Este status é usado por ${usados} edital(is). Mude o status deles antes de excluí-lo.`)
+      d.statuses = d.statuses.filter((s) => s.id !== id)
       return view(d, me.id)
     })
   },

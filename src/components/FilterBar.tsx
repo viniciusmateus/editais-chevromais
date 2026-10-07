@@ -1,8 +1,10 @@
-import { STATUS, STATUS_KEYS, type Edital } from '../shared'
+import type { CategoriaCfg, Edital, StatusCfg } from '../shared'
 import { inPeriod, type Periodo } from '../lib/utils'
 
 interface Props {
   editais: Edital[]
+  categorias: CategoriaCfg[]
+  statuses: StatusCfg[]
   q: string
   onQ: (v: string) => void
   cat: string
@@ -25,7 +27,7 @@ const PERIODOS: Array<[Periodo, string]> = [
   ['month', 'Este Mês'],
 ]
 
-export default function FilterBar({ editais, q, onQ, cat, onCat, per, onPer, status, onStatus, onClear }: Props) {
+export default function FilterBar({ editais, categorias, statuses, q, onQ, cat, onCat, per, onPer, status, onStatus, onClear }: Props) {
   const nCat = (c: string) => editais.filter((x) => x.cat === c).length
   return (
     <div className="grid grid-cols-1 gap-space-sm rounded-xl bg-surface-container-lowest p-space-md shadow-sm md:grid-cols-2 lg:grid-cols-12">
@@ -33,8 +35,11 @@ export default function FilterBar({ editais, q, onQ, cat, onCat, per, onPer, sta
         <label className={label} htmlFor="fCat">Categoria de Fornecimento</label>
         <select id="fCat" className={select} value={cat} onChange={(e) => onCat(e.target.value)}>
           <option value="ALL">Todas as Categorias ({editais.length})</option>
-          <option value="TINTAS">Tintas &amp; Revestimentos ({nCat('TINTAS')})</option>
-          <option value="PNEUS">Pneus, Câmaras &amp; Borrachas ({nCat('PNEUS')})</option>
+          {categorias.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.nome} ({nCat(c.id)})
+            </option>
+          ))}
         </select>
       </div>
 
@@ -53,9 +58,9 @@ export default function FilterBar({ editais, q, onQ, cat, onCat, per, onPer, sta
         <label className={label} htmlFor="fStatus">Status Interno</label>
         <select id="fStatus" className={select} value={status} onChange={(e) => onStatus(e.target.value)}>
           <option value="ALL">Todos os Status</option>
-          {STATUS_KEYS.map((k) => (
-            <option key={k} value={k}>
-              {STATUS[k]} ({editais.filter((x) => x.status === k).length})
+          {statuses.map((s) => (
+            <option key={s.id} value={s.id}>
+              {s.nome} ({editais.filter((x) => x.status === s.id).length})
             </option>
           ))}
         </select>
