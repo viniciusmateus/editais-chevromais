@@ -232,12 +232,6 @@ export default function Dashboard({ onLogout }: { onLogout: () => void }) {
       return next
     })
 
-  const deleteIds = async (ids: number[], okMsg: string) => {
-    if (await act(() => api.deleteEditais(ids), okMsg)) {
-      setSelected((prev) => new Set([...prev].filter((id) => !ids.includes(id))))
-    }
-  }
-
   const logout = async () => {
     await api.logout().catch(() => {})
     onLogout()
@@ -368,14 +362,7 @@ export default function Dashboard({ onLogout }: { onLogout: () => void }) {
                 onRetif={(id) => setModal({ type: 'retif', id })}
                 onHist={(id) => setModal({ type: 'hist', id })}
                 onEdit={(id) => setModal({ type: 'edital', id, v: editais.find((x) => x.id === id)?.v })}
-                onDelete={(id) => {
-                  if (confirm('Excluir este edital? Ele some para todos os usuários.')) void deleteIds([id], 'Edital excluído.')
-                }}
                 onExportSel={() => (selectedEditais.length ? exportCsv(selectedEditais, state.categorias, state.statuses) : notify('Nenhum edital marcado.', true))}
-                onDeleteSel={() => {
-                  if (!selected.size) return notify('Nenhum edital marcado.', true)
-                  if (confirm(`Excluir ${selected.size} edital(is) marcado(s)? Eles somem para todos os usuários.`)) void deleteIds([...selected], 'Editais excluídos.')
-                }}
               />
             </div>
 

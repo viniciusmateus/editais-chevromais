@@ -134,7 +134,7 @@ function cleanRegras(v: any): RegrasCampos {
   if (!v || typeof v !== 'object') throw new ValidationError('Regras dos campos ausentes')
   const out = novasRegras()
   for (const c of CAMPOS_PORTAL) {
-    const r = v[c.key]
+    const r = v[c.key] ?? REGRAS_PADRAO[c.key] // tela aberta antes de um campo novo existir: usa o padrão em vez de recusar
     if (!REGRA_VALORES.includes(r)) throw new ValidationError(`Regra inválida para o campo ${c.label}`)
     if (r === 'obrigatorio' && 'semObrigatorio' in c) throw new ValidationError(`O campo ${c.label} não pode ser obrigatório`)
     out[c.key] = r

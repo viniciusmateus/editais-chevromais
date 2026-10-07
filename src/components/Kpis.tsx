@@ -100,12 +100,12 @@ export default function Kpis({ editais, categorias, statuses }: { editais: Edita
             <span className="font-label-sm text-label-sm font-bold uppercase text-error">Retificações</span>
           </div>
           <span className="rounded bg-error-container/30 px-2 py-0.5 font-label-sm text-label-sm font-bold text-error">
-            {String(totalRet).padStart(2, '0')} registradas
+            {totalRet} registradas
           </span>
         </div>
         <div className="mt-space-md">
           <div className="flex items-baseline justify-between">
-            <span className="font-display-lg text-display-lg font-bold text-primary">{String(nRet).padStart(2, '0')}</span>
+            <span className="font-display-lg text-display-lg font-bold text-primary">{nRet}</span>
             <span className="font-headline-sm text-headline-sm font-semibold text-error">Editais alterados</span>
           </div>
           <div className="mt-space-sm flex flex-col gap-1">

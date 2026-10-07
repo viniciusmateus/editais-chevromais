@@ -24,9 +24,7 @@ interface Props {
   onRetif: (id: number) => void
   onHist: (id: number) => void
   onEdit: (id: number) => void
-  onDelete: (id: number) => void
   onExportSel: () => void
-  onDeleteSel: () => void
 }
 
 function CatBadge({ cat }: { cat: CategoriaCfg }) {
@@ -227,9 +225,6 @@ export default function EditalTable(p: Props) {
                       <button type="button" onClick={() => p.onEdit(x.id)} title="Editar" className="rounded p-1.5 text-primary hover:bg-surface-container">
                         <span className="material-symbols-outlined text-[18px]">edit</span>
                       </button>
-                      <button type="button" onClick={() => p.onDelete(x.id)} title="Excluir" className="rounded p-1.5 text-error hover:bg-error-container/40">
-                        <span className="material-symbols-outlined text-[18px]">delete</span>
-                      </button>
                     </div>
                   </td>
                 </tr>
@@ -247,7 +242,6 @@ export default function EditalTable(p: Props) {
           </label>
           <span className="h-4 w-px bg-outline-variant/40" />
           <button type="button" onClick={p.onExportSel} className="transition-colors hover:text-primary">Exportar Marcados</button>
-          <button type="button" onClick={p.onDeleteSel} className="transition-colors hover:text-error">Excluir Marcados</button>
         </div>
         <div className="flex items-center gap-space-sm font-data-mono text-data-mono">
           <span className="text-outline">Página {page} de {pages}</span>

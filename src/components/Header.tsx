@@ -24,15 +24,6 @@ export default function Header({ me, q, onQ, hasDue, onBell, onProfile, onLogout
             type="text"
           />
         </div>
-        <div className="hidden items-center gap-space-md rounded-lg bg-surface-container-low px-space-md py-1 xl:flex">
-          <span className="font-label-sm text-label-sm uppercase text-outline">Portais:</span>
-          {['Comprasnet', 'Licitações-e', 'BLL'].map((p) => (
-            <div key={p} className="flex items-center gap-space-xs">
-              <span className="h-1.5 w-1.5 rounded-full bg-secondary" />
-              <span className="font-label-sm text-label-sm">{p}</span>
-            </div>
-          ))}
-        </div>
       </div>
 
       <div className="flex items-center gap-space-md">
