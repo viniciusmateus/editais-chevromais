@@ -1,5 +1,5 @@
-import { STATUS, STATUS_KEYS, type Edital, type StatusKey } from '../shared'
-import { fmtDate, todayIso } from '../lib/utils'
+import { RESULTADOS, STATUS, STATUS_KEYS, type Edital, type Resultado, type StatusKey } from '../shared'
+import { brlFull, fmtDate, todayIso } from '../lib/utils'
 
 export type Tab = 'ALL' | 'TINTAS' | 'PNEUS' | 'RETIF'
 export const PAGE_SIZE = 8
@@ -14,29 +14,33 @@ interface Props {
   onPage: (p: number) => void
   sortAsc: boolean
   onSort: () => void
-  q: string
-  onQ: (v: string) => void
+  selected: Set<number>
+  onToggle: (ids: number[], checked: boolean) => void
   onStatus: (id: number, s: StatusKey) => void
+  onResultado: (id: number, r: Resultado) => void
   onRetif: (id: number) => void
   onHist: (id: number) => void
   onEdit: (id: number) => void
+  onDelete: (id: number) => void
+  onExportSel: () => void
+  onDeleteSel: () => void
 }
 
 const statusStyle: Record<StatusKey, string> = {
   PREP: 'bg-surface-container text-on-surface',
-  ANALISE: 'bg-surface-variant text-on-surface',
-  DOCS: 'bg-secondary-container text-on-secondary-container',
-  RETIF: 'bg-error-container text-error',
-  IMPUG: 'bg-primary-container text-on-primary',
+  ANALISE: 'bg-[#e0f2fe] text-[#0369a1]',
+  DOCS: 'bg-secondary-container/40 text-on-secondary-container',
+  RETIF: 'bg-error-container/50 text-error',
+  IMPUG: 'bg-[#fef3c7] text-[#b45309]',
 }
 
 function CatBadge({ cat }: { cat: Edital['cat'] }) {
   return cat === 'PNEUS' ? (
-    <span className="inline-flex items-center gap-1 rounded bg-surface-variant px-2 py-0.5 font-label-sm text-label-sm font-bold text-on-surface">
+    <span className="inline-flex items-center gap-1 rounded bg-[#fef3c7] px-2 py-0.5 font-label-sm text-label-sm font-bold text-[#b45309]">
       <span className="material-symbols-outlined text-[14px]">tire_repair</span> Pneus
     </span>
   ) : (
-    <span className="inline-flex items-center gap-1 rounded bg-secondary-container px-2 py-0.5 font-label-sm text-label-sm font-bold text-on-secondary-container">
+    <span className="inline-flex items-center gap-1 rounded bg-[#e0f2fe] px-2 py-0.5 font-label-sm text-label-sm font-bold text-[#0369a1]">
       <span className="material-symbols-outlined text-[14px]">format_paint</span> Tintas
     </span>
   )
@@ -54,28 +58,17 @@ export default function EditalTable(p: Props) {
   const pages = Math.max(1, Math.ceil(p.list.length / PAGE_SIZE))
   const page = Math.min(p.page, pages)
   const slice = p.list.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
+  const allChecked = slice.length > 0 && slice.every((x) => p.selected.has(x.id))
 
   const tabs: Array<{ id: Tab; label: string; n: number; dot?: string; danger?: boolean }> = [
     { id: 'ALL', label: 'Todos os Editais', n: p.counts.all },
-    { id: 'TINTAS', label: 'Tintas & Revestimentos', n: p.counts.tintas, dot: '#a6a6a6' },
-    { id: 'PNEUS', label: 'Pneus & Borrachas', n: p.counts.pneus, dot: '#6b6b6b' },
-    { id: 'RETIF', label: 'Com Retificações', n: p.counts.retif, dot: '#f5f5f5', danger: true },
+    { id: 'TINTAS', label: 'Tintas & Revestimentos', n: p.counts.tintas, dot: '#0284c7' },
+    { id: 'PNEUS', label: 'Pneus & Borrachas', n: p.counts.pneus, dot: '#d97706' },
+    { id: 'RETIF', label: 'Com Retificações', n: p.counts.retif, dot: '#ba1a1a', danger: true },
   ]
 
   return (
     <div className="flex flex-col overflow-hidden rounded-xl bg-surface-container-lowest shadow-sm">
-      <div className="flex items-center gap-space-sm border-b border-surface-container px-space-md py-space-sm">
-        <div className="relative w-full max-w-xl">
-          <span className="material-symbols-outlined absolute left-3 top-2 text-[18px] text-outline">search</span>
-          <input
-            value={p.q}
-            onChange={(e) => p.onQ(e.target.value)}
-            className="h-9 w-full rounded-lg bg-surface-container-low pl-9 pr-3 text-body-sm text-on-surface placeholder:text-outline focus:outline-none focus:ring-1 focus:ring-secondary"
-            placeholder="Buscar edital, número do pregão, UASG, órgão ou UF..."
-            type="text"
-          />
-        </div>
-      </div>
       <div className="flex flex-wrap items-center justify-between gap-space-sm bg-surface-container-low px-space-md pt-space-sm">
         <div className="flex items-center gap-1 overflow-x-auto">
           {tabs.map((t) => {
@@ -107,23 +100,26 @@ export default function EditalTable(p: Props) {
         <table className="w-full border-collapse text-left">
           <thead>
             <tr className="h-10 select-none bg-surface-container-low font-label-sm text-label-sm uppercase tracking-wider text-outline">
+              <th className="w-8 px-space-md py-2" />
               <th className="px-space-md py-2">Categoria</th>
               <th className="px-space-md py-2">Edital / UASG</th>
               <th className="px-space-md py-2">Órgão Comprador</th>
-              <th className="min-w-[260px] px-space-md py-2">Objeto Registrado</th>
+              <th className="min-w-[220px] px-space-md py-2">Objeto Registrado</th>
               <th className="px-space-md py-2">Retificações</th>
               <th className="cursor-pointer px-space-md py-2" onClick={p.onSort}>
                 Data Limite {p.sortAsc ? '▲' : '▼'}
               </th>
               <th className="px-space-md py-2">Horário</th>
+              <th className="px-space-md py-2 text-right">Valor Ganho</th>
               <th className="px-space-md py-2 text-center">Status</th>
+              <th className="px-space-md py-2 text-center">Resultado</th>
               <th className="px-space-md py-2 text-center">Ações</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-surface-container-low text-body-md">
             {slice.length === 0 && (
               <tr>
-                <td colSpan={9} className="py-8 text-center font-label-md text-label-md text-outline">
+                <td colSpan={12} className="py-8 text-center font-label-md text-label-md text-outline">
                   {p.total
                     ? 'Nenhum edital encontrado para os filtros selecionados.'
                     : 'Nenhum edital cadastrado ainda. Clique em "Novo Edital / Registro" para começar.'}
@@ -135,29 +131,50 @@ export default function EditalTable(p: Props) {
               return (
                 <tr
                   key={x.id}
-                  onClick={() => p.onEdit(x.id)}
-                  title="Clique para editar"
-                  className={`cursor-pointer transition-colors hover:bg-surface-container ${
-                    x.status === 'RETIF' ? 'bg-surface-container-low' : x.status === 'IMPUG' ? 'bg-surface-container-high/50' : ''
+                  className={`transition-colors hover:brightness-95 ${
+                    x.resultado === 'GANHAMOS'
+                      ? 'bg-green-50 shadow-[inset_5px_0_0_#16a34a]'
+                      : x.resultado === 'PERDEMOS'
+                        ? 'bg-red-50 shadow-[inset_5px_0_0_#dc2626]'
+                        : x.status === 'RETIF'
+                          ? 'bg-error-container/10'
+                          : x.status === 'IMPUG'
+                            ? 'bg-[#fff7ed]'
+                            : ''
                   }`}
                 >
+                  <td className="px-space-md py-3">
+                    <input type="checkbox" className="rounded" checked={p.selected.has(x.id)} onChange={(e) => p.onToggle([x.id], e.target.checked)} />
+                  </td>
                   <td className="whitespace-nowrap px-space-md py-3"><CatBadge cat={x.cat} /></td>
                   <td className="whitespace-nowrap px-space-md py-3">
-                    <div className="flex flex-col">
+                    <div
+                      className="flex flex-col"
+                      title={`Cadastrado por ${x.criadoPor || '—'} • Última alteração por ${x.atualizadoPor || '—'}`}
+                    >
                       <span className="font-label-md text-label-md font-bold text-primary">{x.num}</span>
                       <span className="font-data-mono text-data-mono text-outline">{x.uasg}</span>
+                      {x.portal && (
+                        <span className="mt-0.5 w-fit rounded bg-surface-container px-1.5 text-[10px] font-semibold text-on-surface-variant">{x.portal}</span>
+                      )}
                     </div>
                   </td>
-                  <td className="px-space-md py-3">
+                  <td className="min-w-[190px] px-space-md py-3">
                     <div className="flex flex-col">
                       <span className="font-label-md text-label-md font-semibold">{x.orgao}</span>
-                      <span className="font-label-sm text-label-sm text-outline">{x.uf}</span>
+                      <span
+                        className="font-label-sm text-label-sm text-outline"
+                        title={`Cadastrado por ${x.criadoPor || '—'} • Última alteração por ${x.atualizadoPor || '—'}`}
+                      >
+                        {x.uf}
+                        {x.atualizadoPor ? ` • ${x.atualizadoPor}` : ''}
+                      </span>
                     </div>
                   </td>
-                  <td className="px-space-md py-3"><p className="line-clamp-2 max-w-sm" title={x.objeto}>{x.objeto}</p></td>
+                  <td className="px-space-md py-3"><p className="line-clamp-2 max-w-[240px]" title={x.objeto}>{x.objeto}</p></td>
                   <td className="whitespace-nowrap px-space-md py-3">
                     {last ? (
-                      <span className={`rounded px-1.5 py-0.5 font-label-sm text-[11px] font-bold ${last.dias > 0 ? 'bg-error text-on-error' : 'bg-secondary-container text-on-secondary-container'}`}>
+                      <span className={`rounded px-1.5 py-0.5 font-label-sm text-[11px] font-bold ${last.dias > 0 ? 'bg-error text-white' : 'bg-[#e0f2fe] text-[#0369a1]'}`}>
                         {x.retifs.length} retif.{last.dias > 0 ? ` (+${last.dias}d)` : ''}
                       </span>
                     ) : (
@@ -168,10 +185,16 @@ export default function EditalTable(p: Props) {
                   <td className="whitespace-nowrap px-space-md py-3">
                     <span className="rounded bg-surface-container px-2 py-0.5 font-data-mono text-data-mono">{x.hora ? `${x.hora}h` : '--:--'}</span>
                   </td>
+                  <td className="whitespace-nowrap px-space-md py-3 text-right">
+                    {x.valorGanho > 0 ? (
+                      <span className="font-data-mono text-data-mono font-semibold text-secondary">{brlFull(x.valorGanho)}</span>
+                    ) : (
+                      <span className="font-data-mono text-data-mono text-outline">—</span>
+                    )}
+                  </td>
                   <td className="whitespace-nowrap px-space-md py-3 text-center">
                     <select
                       value={x.status}
-                      onClick={(e) => e.stopPropagation()}
                       onChange={(e) => p.onStatus(x.id, e.target.value as StatusKey)}
                       className={`rounded-full border-none px-2 py-1 font-label-sm text-label-sm font-semibold focus:outline-none ${statusStyle[x.status]}`}
                     >
@@ -181,12 +204,36 @@ export default function EditalTable(p: Props) {
                     </select>
                   </td>
                   <td className="whitespace-nowrap px-space-md py-3 text-center">
+                    <select
+                      value={x.resultado}
+                      onChange={(e) => p.onResultado(x.id, e.target.value as Resultado)}
+                      title="Resultado da licitação"
+                      className={`rounded-full border-none px-2 py-1 font-label-sm text-label-sm font-bold focus:outline-none ${
+                        x.resultado === 'GANHAMOS'
+                          ? 'bg-green-600 text-white'
+                          : x.resultado === 'PERDEMOS'
+                            ? 'bg-red-600 text-white'
+                            : 'bg-surface-container text-on-surface-variant'
+                      }`}
+                    >
+                      <option value="">Em andamento</option>
+                      <option value="GANHAMOS">{RESULTADOS.GANHAMOS}</option>
+                      <option value="PERDEMOS">{RESULTADOS.PERDEMOS}</option>
+                    </select>
+                  </td>
+                  <td className="whitespace-nowrap px-space-md py-3 text-center">
                     <div className="flex items-center justify-center gap-1">
-                      <button type="button" onClick={(e) => { e.stopPropagation(); p.onRetif(x.id) }} title="Adicionar Retificação" className="flex items-center gap-1 rounded bg-surface-container-low px-2 py-1 text-label-sm font-semibold text-primary hover:bg-surface-container">
+                      <button type="button" onClick={() => p.onRetif(x.id)} title="Adicionar Retificação" className="flex items-center gap-1 rounded bg-surface-container-low px-2 py-1 text-label-sm font-semibold text-primary hover:bg-surface-container">
                         <span className="material-symbols-outlined text-[14px]">add</span> Retificação
                       </button>
-                      <button type="button" onClick={(e) => { e.stopPropagation(); p.onHist(x.id) }} title="Ver Histórico" className="rounded p-1.5 text-primary hover:bg-surface-container">
+                      <button type="button" onClick={() => p.onHist(x.id)} title="Ver Histórico" className="rounded p-1.5 text-primary hover:bg-surface-container">
                         <span className="material-symbols-outlined text-[18px]">history</span>
+                      </button>
+                      <button type="button" onClick={() => p.onEdit(x.id)} title="Editar" className="rounded p-1.5 text-primary hover:bg-surface-container">
+                        <span className="material-symbols-outlined text-[18px]">edit</span>
+                      </button>
+                      <button type="button" onClick={() => p.onDelete(x.id)} title="Excluir" className="rounded p-1.5 text-error hover:bg-error-container/40">
+                        <span className="material-symbols-outlined text-[18px]">delete</span>
                       </button>
                     </div>
                   </td>
@@ -198,7 +245,15 @@ export default function EditalTable(p: Props) {
       </div>
 
       <div className="flex flex-col items-center justify-between gap-space-sm bg-surface-container-low px-space-md py-space-sm sm:flex-row">
-        <span className="font-label-sm text-label-sm text-outline">Clique em uma linha para editar o edital</span>
+        <div className="flex items-center gap-space-md font-label-sm text-label-sm text-outline">
+          <label className="flex cursor-pointer items-center gap-2">
+            <input type="checkbox" className="rounded" checked={allChecked} onChange={(e) => p.onToggle(slice.map((x) => x.id), e.target.checked)} />
+            <span className="text-on-surface">Selecionar todos da página</span>
+          </label>
+          <span className="h-4 w-px bg-outline-variant/40" />
+          <button type="button" onClick={p.onExportSel} className="transition-colors hover:text-primary">Exportar Marcados</button>
+          <button type="button" onClick={p.onDeleteSel} className="transition-colors hover:text-error">Excluir Marcados</button>
+        </div>
         <div className="flex items-center gap-space-sm font-data-mono text-data-mono">
           <span className="text-outline">Página {page} de {pages}</span>
           <div className="flex items-center gap-1">

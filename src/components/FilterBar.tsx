@@ -3,6 +3,8 @@ import { inPeriod, type Periodo } from '../lib/utils'
 
 interface Props {
   editais: Edital[]
+  q: string
+  onQ: (v: string) => void
   cat: string
   onCat: (v: string) => void
   per: Periodo
@@ -23,7 +25,7 @@ const PERIODOS: Array<[Periodo, string]> = [
   ['month', 'Este Mês'],
 ]
 
-export default function FilterBar({ editais, cat, onCat, per, onPer, status, onStatus, onClear }: Props) {
+export default function FilterBar({ editais, q, onQ, cat, onCat, per, onPer, status, onStatus, onClear }: Props) {
   const nCat = (c: string) => editais.filter((x) => x.cat === c).length
   return (
     <div className="grid grid-cols-1 gap-space-sm rounded-xl bg-surface-container-lowest p-space-md shadow-sm md:grid-cols-2 lg:grid-cols-12">
@@ -60,13 +62,26 @@ export default function FilterBar({ editais, cat, onCat, per, onPer, status, onS
       </div>
 
       <div className="flex items-end gap-space-xs lg:col-span-3">
+        <div className="flex w-full flex-col gap-1">
+          <label className={label}>Busca de Pregão/UASG/Portal</label>
+          <div className="relative w-full">
+            <input
+              value={q}
+              onChange={(e) => onQ(e.target.value)}
+              className="h-9 w-full rounded-lg bg-surface-container-low pl-8 pr-3 text-body-sm text-on-surface placeholder:text-outline focus:outline-none focus:ring-1 focus:ring-secondary"
+              placeholder="Ex: PE 104/2026, Londrina..."
+              type="text"
+            />
+            <span className="material-symbols-outlined absolute left-2.5 top-2 text-[16px] text-outline">search</span>
+          </div>
+        </div>
         <button
           type="button"
           onClick={onClear}
           title="Limpar Filtros"
-          className="flex h-9 items-center justify-center gap-1 rounded-lg bg-surface-container px-3 text-body-sm text-primary hover:bg-surface-container-high"
+          className="flex h-9 items-center justify-center rounded-lg bg-surface-container px-3 text-primary hover:bg-surface-container-high"
         >
-          <span className="material-symbols-outlined text-[18px]">filter_alt_off</span> Limpar filtros
+          <span className="material-symbols-outlined text-[18px]">filter_alt_off</span>
         </button>
       </div>
     </div>

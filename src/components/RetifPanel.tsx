@@ -28,17 +28,17 @@ export default function RetifPanel({ editais, onNew, onHist }: Props) {
           </span>
         </div>
 
-        <div className="flex items-center justify-between gap-space-sm rounded-lg border border-outline-variant bg-surface-container p-space-sm">
+        <div className="flex items-center justify-between gap-space-sm rounded-lg border border-[#ffedd5] bg-[#fff7ed] p-space-sm">
           <div className="flex items-center gap-space-xs">
-            <span className="material-symbols-outlined text-[20px] text-primary">notification_important</span>
-            <span className="text-body-sm font-medium text-on-surface">
+            <span className="material-symbols-outlined text-[20px] text-[#ea580c]">notification_important</span>
+            <span className="text-body-sm font-medium text-[#9a3412]">
               {prazo} {prazo === 1 ? 'retificação alterou' : 'retificações alteraram'} prazos de envio.
             </span>
           </div>
           <button
             type="button"
             onClick={onNew}
-            className="shrink-0 rounded bg-primary px-2.5 py-1 font-label-sm text-label-sm font-semibold text-on-primary hover:bg-primary-container"
+            className="shrink-0 rounded bg-[#ea580c] px-2.5 py-1 font-label-sm text-label-sm font-semibold text-white hover:bg-[#c2410c]"
           >
             Registrar
           </button>
@@ -52,7 +52,7 @@ export default function RetifPanel({ editais, onNew, onHist }: Props) {
                 <div className="flex items-center gap-1.5">
                   <span
                     className={`rounded px-1.5 font-label-sm text-label-sm font-bold ${
-                      r.ed.cat === 'PNEUS' ? 'bg-surface-variant text-on-surface' : 'bg-secondary-container text-on-secondary-container'
+                      r.ed.cat === 'PNEUS' ? 'bg-[#fef3c7] text-[#b45309]' : 'bg-[#e0f2fe] text-[#0369a1]'
                     }`}
                   >
                     {r.ed.cat}
@@ -74,6 +74,7 @@ export default function RetifPanel({ editais, onNew, onHist }: Props) {
                 <span>
                   Registrado:{' '}
                   {new Date(r.ts).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                  {r.por ? ` por ${r.por}` : ''}
                 </span>
                 <button type="button" onClick={() => onHist(r.ed.id)} className="font-semibold text-primary hover:underline">
                   Ver Histórico
@@ -85,7 +86,7 @@ export default function RetifPanel({ editais, onNew, onHist }: Props) {
       </div>
 
       <div className="mt-space-sm flex items-center justify-between pt-space-xs">
-        <span className="font-label-sm text-label-sm text-outline">Gravado em data/db.json</span>
+        <span className="font-label-sm text-label-sm text-outline">Compartilhado entre todos os usuários</span>
         <div className="flex items-center gap-1.5 font-label-md text-label-md font-semibold text-primary">
           <span className="h-2 w-2 rounded-full bg-secondary" />
           Ativo

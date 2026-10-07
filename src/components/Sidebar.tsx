@@ -1,8 +1,9 @@
-export type Nav = 'dashboard' | 'TINTAS' | 'PNEUS' | 'RETIF' | 'novo' | 'calendario' | 'relatorio' | 'config'
+export type Nav = 'dashboard' | 'TINTAS' | 'PNEUS' | 'RETIF' | 'novo' | 'calendario' | 'relatorio' | 'usuarios' | 'config'
 
 interface Props {
   nav: Nav
   counts: { tintas: number; pneus: number; retif: number }
+  isAdmin: boolean
   onNav: (n: Nav) => void
 }
 
@@ -14,7 +15,7 @@ interface Item {
   danger?: boolean
 }
 
-export default function Sidebar({ nav, counts, onNav }: Props) {
+export default function Sidebar({ nav, counts, isAdmin, onNav }: Props) {
   const main: Item[] = [
     { id: 'dashboard', icon: 'dashboard', label: 'Visão Geral' },
     { id: 'TINTAS', icon: 'format_paint', label: 'Editais de Tintas', count: counts.tintas },
@@ -33,7 +34,7 @@ export default function Sidebar({ nav, counts, onNav }: Props) {
         type="button"
         onClick={() => onNav(it.id)}
         className={`flex w-full items-center justify-between rounded-lg px-space-md py-space-sm text-left transition-all ${
-          active ? 'bg-primary-container text-on-primary' : 'text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface'
+          active ? 'bg-primary-container font-semibold text-on-primary-container' : 'text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface'
         }`}
       >
         <span className="flex items-center gap-space-md">
@@ -60,7 +61,7 @@ export default function Sidebar({ nav, counts, onNav }: Props) {
           <div className="flex h-8 w-8 items-center justify-center rounded bg-primary font-bold text-on-primary">EC</div>
           <div className="flex flex-col">
             <span className="font-headline-sm text-headline-sm leading-none text-primary">Editais Chevomais</span>
-            <span className="mt-0.5 font-label-sm text-label-sm uppercase leading-tight tracking-wider text-outline">Bidding Intelligence</span>
+            <span className="mt-0.5 font-label-sm text-label-sm uppercase leading-tight tracking-wider text-outline">Gestão de Editais</span>
           </div>
         </div>
         <div className="px-space-md py-space-sm">
@@ -69,12 +70,13 @@ export default function Sidebar({ nav, counts, onNav }: Props) {
         <nav className="flex flex-col gap-1 px-space-md">{main.map(link)}</nav>
       </div>
       <div className="flex flex-col gap-space-sm p-space-md">
-        <nav className="flex flex-col gap-1">{link({ id: 'config', icon: 'settings', label: 'Configurações' })}</nav>
-        <div className="flex items-center justify-between rounded-lg bg-surface-container-low p-space-sm">
-          <div className="flex items-center gap-space-sm">
-            <span className="h-2 w-2 animate-pulse rounded-full bg-secondary" />
-            <span className="font-label-sm text-label-sm text-on-surface">Dados salvos em disco</span>
-          </div>
+        <nav className="flex flex-col gap-1">
+          {isAdmin && link({ id: 'usuarios', icon: 'group', label: 'Usuários' })}
+          {link({ id: 'config', icon: 'settings', label: 'Meu perfil e senha' })}
+        </nav>
+        <div className="flex items-center gap-space-sm rounded-lg bg-surface-container-low p-space-sm">
+          <span className="h-2 w-2 animate-pulse rounded-full bg-secondary" />
+          <span className="font-label-sm text-label-sm text-on-surface">Sincronizado em tempo real</span>
         </div>
       </div>
     </aside>

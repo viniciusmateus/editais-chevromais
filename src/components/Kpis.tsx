@@ -1,7 +1,7 @@
 import type { Edital } from '../shared'
 import { brl, todayIso } from '../lib/utils'
 
-const sum = (a: Edital[]) => a.reduce((s, x) => s + x.valor, 0)
+const sum = (a: Edital[]) => a.reduce((s, x) => s + x.valorGanho, 0)
 const count = (a: Edital[], f: (e: Edital) => boolean) => a.filter(f).length
 
 function SubBar({ label, n, total, color }: { label: string; n: number; total: number; color: string }) {
@@ -43,7 +43,10 @@ export default function Kpis({ editais }: { editais: Edital[] }) {
       <div className="mt-space-md">
         <div className="flex items-baseline justify-between">
           <span className="font-display-lg text-display-lg font-bold text-primary">{list.length}</span>
-          <span className="font-headline-sm text-headline-sm font-semibold" style={{ color: dot }}>{brl(sum(list))}</span>
+          <span className="font-headline-sm text-headline-sm font-semibold" style={{ color: dot }} title="Valor ganho">
+            {brl(sum(list))}
+            <span className="ml-1 text-[11px] font-medium text-outline">ganho</span>
+          </span>
         </div>
         <div className="mt-space-sm flex flex-col gap-1">
           <SubBar label="Documentação pronta" n={count(list, (x) => x.status === 'DOCS')} total={list.length} color={color} />
@@ -73,15 +76,20 @@ export default function Kpis({ editais }: { editais: Edital[] }) {
           <p className="mt-1 text-body-sm text-on-surface-variant">
             {count(editais, (x) => x.status === 'PREP' || x.status === 'ANALISE')} em preparação ou análise
           </p>
+          <p className="mt-1 text-body-sm font-semibold">
+            <span className="text-green-700">{count(editais, (x) => x.resultado === 'GANHAMOS')} ganhamos</span>
+            <span className="text-outline"> • </span>
+            <span className="text-red-700">{count(editais, (x) => x.resultado === 'PERDEMOS')} perdemos</span>
+          </p>
         </div>
         <div className="mt-space-md flex items-center justify-between font-data-mono text-data-mono text-outline">
-          <span>Volume Estimado:</span>
+          <span>Valor ganho:</span>
           <span className="font-bold text-primary">{brl(sum(editais))}</span>
         </div>
       </div>
 
-      {catCard('Tintas & Revestimentos', '#a6a6a6', '#d4d4d4', '#2e2e2e', tin, '#a6a6a6')}
-      {catCard('Pneus & Linha Rodoviária', '#6b6b6b', '#bdbdbd', '#2e2e2e', pne, '#6b6b6b')}
+      {catCard('Tintas & Revestimentos', '#0284c7', '#0369a1', '#e0f2fe', tin, '#0284c7')}
+      {catCard('Pneus & Linha Rodoviária', '#d97706', '#b45309', '#fef3c7', pne, '#d97706')}
 
       <div className={card}>
         <div className="flex items-center justify-between">
@@ -103,7 +111,7 @@ export default function Kpis({ editais }: { editais: Edital[] }) {
               label={`${count(editais, (x) => x.cat === 'TINTAS' && x.retifs.length > 0)} Tintas • ${count(editais, (x) => x.cat === 'PNEUS' && x.retifs.length > 0)} Pneus`}
               n={nRet}
               total={editais.length}
-              color="#f5f5f5"
+              color="#ba1a1a"
             />
             <div className="mt-0.5 flex justify-between font-label-sm text-label-sm text-outline">
               <span>Prazo prorrogado: {prazoAlt}</span>

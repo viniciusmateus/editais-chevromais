@@ -1,4 +1,4 @@
-import { REGIOES, STATUS, type Edital } from '../shared'
+import { MODALIDADES, REGIOES, RESULTADOS, STATUS, type Edital } from '../shared'
 
 export type Periodo = 'all' | 'today' | '7days' | 'month'
 
@@ -14,8 +14,30 @@ export const addDaysIso = (n: number) => {
 
 export const fmtDate = (s: string) => (s ? s.split('-').reverse().join('/') : 'A Definir')
 
-export const brl = (v: number) =>
-  v >= 1e6 ? `R$ ${(v / 1e6).toFixed(1).replace('.', ',')}M` : v >= 1e3 ? `R$ ${Math.round(v / 1e3)}k` : `R$ ${Math.round(v)}`
+const BRL = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' })
+
+/** R$ 1.234,56 — a partir de 1 milhão abrevia (R$ 1,23 mi) para caber nos cartões. */
+export const brl = (v: number) => (v >= 1e6 ? `R$ ${(v / 1e6).toFixed(2).replace('.', ',')} mi` : BRL.format(v))
+
+/** Sempre completo: R$ 1.234.567,89 */
+export const brlFull = (v: number) => BRL.format(v)
+
+/**
+ * Lê o valor digitado em formato brasileiro ou simples: "15000", "15.000,50", "R$ 15.000,50", "15000.50".
+ * Vazio = 0. Texto inválido = null.
+ */
+export function parseMoney(text: string): number | null {
+  let s = text.replace(/R\$/gi, '').replace(/\s/g, '')
+  if (s === '') return 0
+  if (!/^\d[\d.,]*$/.test(s)) return null
+  if (s.includes(',')) s = s.replace(/\./g, '').replace(',', '.') // 1.234,56 -> 1234.56
+  else if (/^\d{1,3}(\.\d{3})+$/.test(s)) s = s.replace(/\./g, '') // 1.234 ou 1.234.567 -> milhar
+  const n = Number(s)
+  return Number.isFinite(n) && n >= 0 ? Math.round(n * 100) / 100 : null
+}
+
+/** Valor para mostrar dentro do campo de edição (vírgula decimal, vazio se zero). */
+export const moneyToInput = (v: number) => (v ? String(v).replace('.', ',') : '')
 
 export const regiaoDe = (uf: string) =>
   Object.entries(REGIOES).find(([, ufs]) => ufs.includes(uf))?.[0] ?? 'Norte/Nordeste'
@@ -32,36 +54,19 @@ export function inPeriod(e: Edital, p: Periodo): boolean {
   return e.data >= start && e.data <= end
 }
 
-const esc = (v: unknown) =>
-  String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
-
-/** Abre a janela de impressão com o relatório; no diálogo escolha "Salvar como PDF". */
-export function exportPdf(list: Edital[]): boolean {
-  const w = window.open('', '_blank')
-  if (!w) return false
-  const head = ['Categoria', 'Edital / UASG', 'Órgão / UF', 'Objeto', 'Data limite', 'Horário', 'Status', 'Retif.']
-  const rows = list
-    .map(
-      (x) =>
-        `<tr><td>${esc(x.cat)}</td><td><b>${esc(x.num)}</b><br>${esc(x.uasg)}</td><td>${esc(x.orgao)}<br>${esc(x.uf)}</td>` +
-        `<td>${esc(x.objeto)}</td><td>${esc(fmtDate(x.data))}</td><td>${esc(x.hora || '--:--')}</td><td>${esc(STATUS[x.status])}</td><td>${x.retifs.length}</td></tr>`,
-    )
-    .join('')
-  w.document.write(`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Editais Chevomais - ${todayIso()}</title>
-<style>
-  body{font-family:Arial,sans-serif;color:#111;margin:24px}
-  h1{font-size:18px;margin:0}p{color:#555;font-size:11px;margin:4px 0 14px}
-  table{width:100%;border-collapse:collapse;font-size:10px}
-  th{background:#222;color:#fff;text-align:left;padding:6px}
-  td{border-bottom:1px solid #ccc;padding:5px;vertical-align:top}
-  tr{page-break-inside:avoid}
-  @page{size:A4 landscape;margin:12mm}
-</style></head><body>
-<h1>Editais Chevomais</h1><p>Emitido em ${new Date().toLocaleString('pt-BR')} • ${list.length} edital(is)</p>
-<table><thead><tr>${head.map((h) => `<th>${h}</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table>
-</body></html>`)
-  w.document.close()
-  w.focus()
-  setTimeout(() => w.print(), 300)
-  return true
+/** Baixa um CSV (separador ;, UTF-8 com BOM) que abre direto no Excel. */
+export function exportCsv(list: Edital[]): void {
+  const q = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`
+  const head = ['Categoria', 'Edital', 'UASG / ID', 'Portal', 'Órgão', 'UF', 'Objeto', 'Modalidade', 'Valor ganho', 'Data limite', 'Horário', 'Status', 'Resultado', 'Retificações']
+  const rows = list.map((x) =>
+    [x.cat, x.num, x.uasg, x.portal, x.orgao, x.uf, x.objeto, MODALIDADES[x.mod], x.valorGanho.toFixed(2).replace('.', ','), fmtDate(x.data), x.hora, STATUS[x.status], x.resultado ? RESULTADOS[x.resultado] : 'Em andamento', x.retifs.length]
+      .map(q)
+      .join(';'),
+  )
+  const blob = new Blob(['﻿' + [head.map(q).join(';'), ...rows].join('\n')], { type: 'text/csv;charset=utf-8' })
+  const a = document.createElement('a')
+  a.href = URL.createObjectURL(blob)
+  a.download = `editais_${todayIso()}.csv`
+  a.click()
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000)
 }

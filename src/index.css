@@ -3,9 +3,6 @@
 @tailwind utilities;
 
 @layer base {
-  html {
-    color-scheme: dark;
-  }
   html,
   body {
     margin: 0;

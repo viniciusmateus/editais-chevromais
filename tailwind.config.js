@@ -4,30 +4,37 @@ export default {
   darkMode: 'class',
   theme: {
     extend: {
+      // Paleta clara: azul vivo para ações e destaques, fundos quase brancos e texto em cinza-azulado
+      // (antes: primary #000f23 / menu #0f253e / texto #0b1c30, quase pretos).
       colors: {
-        // Paleta Dark/Minimalista: apenas tons de cinza, chumbo e preto.
-        error: '#e5e5e5',
-        'on-error': '#0a0a0a',
-        'error-container': '#4a4a4a',
-        'on-error-container': '#f2f2f2',
-        background: '#0d0d0d',
-        surface: '#0d0d0d',
-        'surface-bright': '#262626',
-        'surface-container-lowest': '#161616',
-        'surface-container-low': '#1e1e1e',
-        'surface-container': '#292929',
-        'surface-container-high': '#333333',
-        'surface-variant': '#3d3d3d',
-        'on-surface': '#ececec',
-        'on-surface-variant': '#b3b3b3',
-        outline: '#8a8a8a',
-        'outline-variant': '#4d4d4d',
-        primary: '#f5f5f5',
-        'on-primary': '#0a0a0a',
-        'primary-container': '#c9c9c9',
-        secondary: '#a6a6a6',
-        'secondary-container': '#5c5c5c',
-        'on-secondary-container': '#e0e0e0',
+        primary: '#2563eb',
+        'primary-hover': '#1d4ed8',
+        'primary-container': '#dbeafe',
+        'on-primary': '#ffffff',
+        'on-primary-container': '#1e40af',
+
+        secondary: '#0d9488',
+        'secondary-container': '#ccfbf1',
+        'on-secondary-container': '#0f766e',
+
+        error: '#dc2626',
+        'error-container': '#fee2e2',
+        'on-error': '#ffffff',
+        'on-error-container': '#991b1b',
+
+        background: '#f4f7fc',
+        surface: '#f4f7fc',
+        'surface-bright': '#ffffff',
+        'surface-container-lowest': '#ffffff',
+        'surface-container-low': '#f1f5fb',
+        'surface-container': '#e8eef8',
+        'surface-container-high': '#dde7f5',
+        'surface-variant': '#e2eaf6',
+
+        'on-surface': '#334155',
+        'on-surface-variant': '#475569',
+        outline: '#64748b',
+        'outline-variant': '#cbd5e1',
       },
       borderRadius: { DEFAULT: '0.125rem', lg: '0.25rem', xl: '0.5rem', full: '0.75rem' },
       spacing: {
