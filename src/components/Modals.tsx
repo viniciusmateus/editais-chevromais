@@ -93,6 +93,43 @@ export function Actions({ onClose, busy, submit, danger }: { onClose: () => void
   )
 }
 
+// ---------- Motivo da mudança de status ----------
+export function MotivoModal({
+  edital,
+  status,
+  onSave,
+  onClose,
+}: {
+  edital: Edital
+  status: StatusCfg
+  onSave: (motivo: string) => Promise<boolean>
+  onClose: () => void
+}) {
+  const [motivo, setMotivo] = useState('')
+  const [busy, setBusy] = useState(false)
+  const submit = async (e: FormEvent) => {
+    e.preventDefault()
+    setBusy(true)
+    const ok = await onSave(motivo.trim())
+    setBusy(false)
+    if (ok) onClose()
+  }
+  return (
+    <Modal title={`Mudar para "${status.nome}"`} icon="rule" onClose={onClose}>
+      <form onSubmit={submit} className="flex flex-col gap-space-md">
+        <p className="text-body-sm text-on-surface-variant">
+          Edital <b>{edital.num || `#${edital.id}`}</b>
+          {edital.orgao ? ` • ${edital.orgao}` : ''}. Este status exige uma justificativa, que fica registrada no histórico do edital.
+        </p>
+        <Field label="Motivo *">
+          <textarea required autoFocus rows={4} maxLength={500} className={`${input} h-auto py-2`} placeholder="Descreva o motivo" value={motivo} onChange={(e) => setMotivo(e.target.value)} />
+        </Field>
+        <Actions onClose={onClose} busy={busy} submit="Confirmar mudança" />
+      </form>
+    </Modal>
+  )
+}
+
 // ---------- Novo / editar edital ----------
 export function EditalModal({
   initial,
@@ -106,12 +143,13 @@ export function EditalModal({
   categorias: CategoriaCfg[]
   portais: Portal[]
   statuses: StatusCfg[]
-  onSave: (v: EditalInput) => Promise<boolean>
+  onSave: (v: EditalInput, motivo?: string) => Promise<boolean>
   onClose: () => void
 }) {
+  const [motivo, setMotivo] = useState('')
   const [f, setF] = useState({
-    // a categoria sempre começa vazia (também ao editar): quem salva precisa escolher a correta
-    cat: '',
+    // ao cadastrar a categoria começa vazia (para ninguém esquecer); ao editar mantém a que já está salva
+    cat: initial?.cat ?? '',
     mod: (initial?.mod ?? 0) as Modalidade,
     num: initial?.num ?? '',
     uasg: initial?.uasg ?? '',
@@ -136,6 +174,8 @@ export function EditalModal({
   const req = (k: keyof typeof regras) => regras[k] === 'obrigatorio'
   const lbl = (text: string, k: keyof typeof regras) => (req(k) ? `${text} *` : text)
   // portal que já não está cadastrado (excluído/renomeado) continua aparecendo no edital que o usa
+  // status escolhido agora (diferente do salvo) que exige justificativa
+  const exigeMotivo = !!initial && f.status !== initial.status && !!statuses.find((s) => s.id === f.status)?.exigeMotivo
   const portalOrfao = f.portal && !portais.some((p) => p.nome === f.portal)
 
   const submit = async (e: FormEvent) => {
@@ -145,7 +185,7 @@ export function EditalModal({
     if (initial && req('valorGanho') && !(valorGanho > 0)) return setErr('Informe o valor ganho (campo obrigatório para este portal).')
     setErr(null)
     setBusy(true)
-    const ok = await onSave({ ...f, valorGanho, uf: f.uf.toUpperCase() })
+    const ok = await onSave({ ...f, valorGanho, uf: f.uf.toUpperCase() }, exigeMotivo ? motivo.trim() : undefined)
     setBusy(false)
     if (ok) onClose()
   }
@@ -228,6 +268,11 @@ export function EditalModal({
             ))}
           </select>
         </Field>
+        {exigeMotivo && (
+          <Field label="Motivo da mudança de status *" className="col-span-2">
+            <textarea required rows={2} maxLength={500} className={`${input} h-auto py-2`} placeholder="Explique por que o status está mudando" value={motivo} onChange={(e) => setMotivo(e.target.value)} />
+          </Field>
+        )}
         {initial && show('valorGanho') && (
           <Field label={lbl('Valor ganho (R$)', 'valorGanho')}>
             <input
@@ -356,7 +401,11 @@ export function HistModal({ edital, onClose }: { edital: Edital; onClose: () => 
                 {l.acao === 'criou' ? 'cadastrou o edital' : l.acao === 'retificou' ? 'registrou uma retificação' : 'alterou'}
               </span>
             </div>
-            {l.obs && <div className="mt-0.5 text-body-sm italic text-on-surface-variant">“{l.obs}”</div>}
+            {l.obs && (
+              <div className="mt-0.5 text-body-sm italic text-on-surface-variant">
+                {l.acao === 'alterou' ? 'Motivo: ' : ''}“{l.obs}”
+              </div>
+            )}
             {l.mudancas.length > 0 && (
               <ul className="mt-1 list-disc pl-5 text-body-sm">
                 {l.mudancas.map((m, j) => (

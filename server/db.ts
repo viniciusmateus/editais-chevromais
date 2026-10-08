@@ -231,7 +231,7 @@ function normalize(raw: any): DbFile {
   // status: os cadastrados; bancos antigos recebem os 5 originais
   const statuses: StatusCfg[] = (Array.isArray(raw.statuses) ? raw.statuses : [])
     .filter((s: any) => s && typeof s.id === 'string' && s.id && typeof s.nome === 'string')
-    .map((s: any) => ({ id: s.id, nome: s.nome, cor: COR_RE.test(s.cor) ? s.cor : '#64748b' }))
+    .map((s: any) => ({ id: s.id, nome: s.nome, cor: COR_RE.test(s.cor) ? s.cor : '#64748b', ...(s.exigeMotivo === true ? { exigeMotivo: true } : {}) }))
   if (!Array.isArray(raw.statuses)) statuses.push(...STATUS_INICIAIS.map((s) => ({ ...s })))
   for (const id of [...STATUS_FIXOS, ...editais.map((e) => e.status)]) {
     if (!statuses.some((s) => s.id === id)) statuses.push(STATUS_INICIAIS.find((s) => s.id === id) ?? { id: String(id), nome: String(id), cor: '#64748b' })
@@ -658,6 +658,7 @@ export const db = {
   updateEdital(user: UserRecord, id: number, body: any): Promise<AppState> {
     const patch = parseEdital(body, true)
     const expectedV = body?.v !== undefined ? Number(body.v) : undefined
+    const motivo = str(body?.motivo, 'Motivo', false, 500)
     return mutate((d) => {
       const me = actorIn(d, user)
       const e = d.editais.find((x) => x.id === id)
@@ -670,9 +671,13 @@ export const db = {
       // o formulário completo (que traz categoria e portal) é conferido contra as regras do portal; trocas rápidas (status, resultado) não
       if (patch.cat !== undefined || patch.portal !== undefined) conferirEdital(d, { ...e, ...patch } as EditalInput, portaisPermitidos(d, me), e.portal)
       else if (patch.status !== undefined && !d.statuses.some((s) => s.id === patch.status)) throw new ValidationError('Status inválido')
+      // status que exige justificativa: a troca só vale com o motivo preenchido
+      const trocouStatus = patch.status !== undefined && patch.status !== e.status
+      const novoStatus = trocouStatus ? d.statuses.find((s) => s.id === patch.status) : undefined
+      if (novoStatus?.exigeMotivo && !motivo) throw new ValidationError(`Informe o motivo para mudar o status para "${novoStatus.nome}"`)
       const mudancas = diffEdital(d, e, patch)
       Object.assign(e, patch)
-      if (mudancas.length) addLog(e, me, 'alterou', mudancas)
+      if (mudancas.length) addLog(e, me, 'alterou', mudancas, trocouStatus ? motivo : undefined)
       stamp(e, me)
       return view(d, me.id)
     })
@@ -814,13 +819,14 @@ export const db = {
   createStatus(admin: UserRecord, body: any): Promise<AppState> {
     const nome = str(body?.nome, 'Nome do status', true, 40)
     const cor = cleanCor(body?.cor)
+    const exigeMotivo = body?.exigeMotivo === true
     return mutate((d) => {
       const me = actorIn(d, admin, true)
       if (d.statuses.some((s) => s.nome.toLowerCase() === nome.toLowerCase())) throw new ValidationError('Já existe um status com esse nome')
       const base = nome.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/[^A-Z0-9]+/g, '-').replace(/^-|-$/g, '') || 'STATUS'
       let id = base
       for (let i = 2; d.statuses.some((s) => s.id === id); i++) id = `${base}-${i}`
-      d.statuses.push({ id, nome, cor })
+      d.statuses.push({ id, nome, cor, ...(exigeMotivo ? { exigeMotivo } : {}) })
       return view(d, me.id)
     })
   },
@@ -828,6 +834,7 @@ export const db = {
   updateStatus(admin: UserRecord, id: string, body: any): Promise<AppState> {
     const nome = str(body?.nome, 'Nome do status', true, 40)
     const cor = cleanCor(body?.cor)
+    const exigeMotivo = body?.exigeMotivo === true
     return mutate((d) => {
       const me = actorIn(d, admin, true)
       const s = d.statuses.find((x) => x.id === id)
@@ -835,6 +842,8 @@ export const db = {
       if (d.statuses.some((x) => x.id !== id && x.nome.toLowerCase() === nome.toLowerCase())) throw new ValidationError('Já existe um status com esse nome')
       s.nome = nome
       s.cor = cor
+      if (exigeMotivo) s.exigeMotivo = true
+      else delete s.exigeMotivo
       return view(d, me.id)
     })
   },

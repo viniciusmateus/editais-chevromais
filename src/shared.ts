@@ -81,6 +81,8 @@ export interface StatusCfg {
   id: StatusKey
   nome: string
   cor: string
+  /** quando true, mudar um edital para este status exige o motivo (fica no histórico) */
+  exigeMotivo?: boolean
 }
 
 export interface CategoriaCfg {

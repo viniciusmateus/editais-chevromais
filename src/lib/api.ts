@@ -8,6 +8,8 @@ export interface PortalInput {
 export interface CategoriaInput {
   nome: string
   cor: string
+  /** só status: exige motivo ao mudar um edital para ele */
+  exigeMotivo?: boolean
 }
 
 export class ApiError extends Error {
@@ -92,7 +94,7 @@ export const api = {
   // editais
   createEdital: (e: EditalInput) => req<AppState>('/api/editais', 'POST', e),
   /** `v` = versão que o usuário estava editando; se outra pessoa já alterou, a API responde 409 */
-  updateEdital: (id: number, patch: Partial<EditalInput> & { v?: number }) => req<AppState>(`/api/editais/${id}`, 'PUT', patch),
+  updateEdital: (id: number, patch: Partial<EditalInput> & { v?: number; motivo?: string }) => req<AppState>(`/api/editais/${id}`, 'PUT', patch),
   deleteEditais: (ids: number[]) => req<AppState>('/api/editais/delete', 'POST', { ids }),
   addRetif: (id: number, r: { desc: string; data?: string; hora?: string }) => req<AppState>(`/api/editais/${id}/retifs`, 'POST', r),
   clearAll: () => req<AppState>('/api/editais', 'DELETE'),

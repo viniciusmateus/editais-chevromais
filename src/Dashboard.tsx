@@ -9,13 +9,15 @@ import Kpis from './components/Kpis'
 import RegionPanel from './components/RegionPanel'
 import RetifPanel from './components/RetifPanel'
 import EditalTable, { type Tab } from './components/EditalTable'
-import { EditalModal, HistModal, ProfileModal, ReportModal, RetifModal, UsersModal } from './components/Modals'
+import CalendarView from './components/CalendarView'
+import { EditalModal, HistModal, MotivoModal, ProfileModal, ReportModal, RetifModal, UsersModal } from './components/Modals'
 import { ConfigModal, PortaisModal } from './components/Admin'
 
 type ModalState =
   | { type: 'edital'; id?: number; v?: number }
   | { type: 'retif'; id?: number }
   | { type: 'hist'; id: number }
+  | { type: 'motivo'; id: number; status: StatusKey }
   | { type: 'report' }
   | { type: 'profile' }
   | { type: 'users' }
@@ -117,7 +119,7 @@ export default function Dashboard({ onLogout }: { onLogout: () => void }) {
   // se outra pessoa excluir o edital que está aberto num modal, fecha o modal
   useEffect(() => {
     if (!state || !modal) return
-    const id = modal.type === 'edital' || modal.type === 'retif' || modal.type === 'hist' ? modal.id : undefined
+    const id = modal.type === 'edital' || modal.type === 'retif' || modal.type === 'hist' || modal.type === 'motivo' ? modal.id : undefined
     if (id !== undefined && !state.editais.some((x) => x.id === id)) {
       setModal(null)
       notify('Este edital foi excluído por outro usuário.', true)
@@ -195,15 +197,17 @@ export default function Dashboard({ onLogout }: { onLogout: () => void }) {
     if (n === 'portais') return setModal({ type: 'portais' })
     if (n === 'configuracoes') return setModal({ type: 'config' })
     setNav(n)
-    if (n === 'calendario') {
-      setTab('ALL')
-      setSortAsc(true)
-      setFPer('7days')
-      notify('Mostrando prazos dos próximos 7 dias.')
-    } else {
-      setTab(n === 'RETIF' ? 'RETIF' : 'ALL')
-    }
+    if (n === 'calendario') return window.scrollTo({ top: 0, behavior: 'smooth' })
+    setTab(n === 'RETIF' ? 'RETIF' : 'ALL')
     scrollToTable()
+  }
+
+  /** Troca rápida de status: se o status exige justificativa, abre o modal do motivo antes de gravar. */
+  const mudarStatus = (id: number, status: StatusKey) => {
+    const atual = editais.find((x) => x.id === id)
+    if (!atual || atual.status === status) return
+    if (state?.statuses.find((s) => s.id === status)?.exigeMotivo) return setModal({ type: 'motivo', id, status })
+    void act(() => api.updateEdital(id, { status }), 'Status atualizado.')
   }
 
   const onTab = (t: Tab) => {
@@ -315,6 +319,17 @@ export default function Dashboard({ onLogout }: { onLogout: () => void }) {
               </div>
             </div>
 
+            {nav === 'calendario' ? (
+              <CalendarView
+                editais={editais}
+                portais={state.portais}
+                categorias={state.categorias}
+                statuses={state.statuses}
+                onEdit={(id) => setModal({ type: 'edital', id, v: editais.find((x) => x.id === id)?.v })}
+                onHist={(id) => setModal({ type: 'hist', id })}
+              />
+            ) : (
+              <>
             <FilterBar
               editais={editais}
               categorias={state.categorias}
@@ -357,7 +372,7 @@ export default function Dashboard({ onLogout }: { onLogout: () => void }) {
                 onSort={() => setSortAsc((v) => !v)}
                 selected={selected}
                 onToggle={toggle}
-                onStatus={(id, status: StatusKey) => void act(() => api.updateEdital(id, { status }), 'Status atualizado.')}
+                onStatus={mudarStatus}
                 onResultado={(id, resultado) => void act(() => api.updateEdital(id, { resultado }), resultado ? `Marcado como ${RESULTADOS[resultado]}.` : 'Resultado removido.')}
                 onRetif={(id) => setModal({ type: 'retif', id })}
                 onHist={(id) => setModal({ type: 'hist', id })}
@@ -365,6 +380,8 @@ export default function Dashboard({ onLogout }: { onLogout: () => void }) {
                 onExportSel={() => (selectedEditais.length ? exportCsv(selectedEditais, state.categorias, state.statuses) : notify('Nenhum edital marcado.', true))}
               />
             </div>
+              </>
+            )}
 
             <div className="flex items-center justify-between rounded-xl bg-surface-container-lowest px-space-md py-space-sm font-label-sm text-label-sm text-outline">
               <div className="flex items-center gap-1.5">
@@ -385,9 +402,9 @@ export default function Dashboard({ onLogout }: { onLogout: () => void }) {
           portais={state.portais}
           statuses={state.statuses}
           onClose={closeModal}
-          onSave={(v) =>
+          onSave={(v, motivo) =>
             act(
-              () => (modalEdital ? api.updateEdital(modalEdital.id, { ...v, v: modal.v }) : api.createEdital(v)),
+              () => (modalEdital ? api.updateEdital(modalEdital.id, { ...v, v: modal.v, motivo }) : api.createEdital(v)),
               modalEdital ? 'Edital atualizado.' : 'Edital registrado.',
             )
           }
@@ -402,6 +419,14 @@ export default function Dashboard({ onLogout }: { onLogout: () => void }) {
         />
       )}
       {modal?.type === 'hist' && modalEdital && <HistModal edital={modalEdital} onClose={closeModal} />}
+      {modal?.type === 'motivo' && modalEdital && state.statuses.some((s) => s.id === modal.status) && (
+        <MotivoModal
+          edital={modalEdital}
+          status={state.statuses.find((s) => s.id === modal.status)!}
+          onClose={closeModal}
+          onSave={(motivo) => act(() => api.updateEdital(modal.id, { status: modal.status, motivo }), 'Status atualizado.')}
+        />
+      )}
       {modal?.type === 'report' && (
         <ReportModal
           editais={editais}

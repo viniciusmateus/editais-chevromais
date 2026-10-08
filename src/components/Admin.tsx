@@ -175,29 +175,34 @@ interface Item {
   id: string
   nome: string
   cor: string
+  exigeMotivo?: boolean
 }
 
 function ItemForm({
   initial,
   rotulo,
   placeholder,
+  comMotivo,
   onSubmit,
   onCancel,
 }: {
   initial?: Item
   rotulo: string
   placeholder: string
+  /** mostra a opção "exigir justificativa" (só para status) */
+  comMotivo?: boolean
   onSubmit: (v: CategoriaInput) => Promise<boolean>
   onCancel: () => void
 }) {
   const [nome, setNome] = useState(initial?.nome ?? '')
   const [cor, setCor] = useState(initial?.cor ?? CORES[0])
+  const [exigeMotivo, setExigeMotivo] = useState(initial?.exigeMotivo === true)
   const [busy, setBusy] = useState(false)
 
   const submit = async (e: FormEvent) => {
     e.preventDefault()
     setBusy(true)
-    const ok = await onSubmit({ nome: nome.trim(), cor })
+    const ok = await onSubmit({ nome: nome.trim(), cor, ...(comMotivo ? { exigeMotivo } : {}) })
     setBusy(false)
     if (ok) onCancel()
   }
@@ -223,6 +228,17 @@ function ItemForm({
           <input type="color" aria-label="Outra cor" value={cor} onChange={(e) => setCor(e.target.value)} className="h-7 w-9 cursor-pointer rounded border-0 bg-transparent p-0" />
         </div>
       </div>
+      {comMotivo && (
+        <label className="flex cursor-pointer items-start gap-space-sm rounded-lg bg-surface-container-low p-space-sm">
+          <input type="checkbox" checked={exigeMotivo} onChange={(e) => setExigeMotivo(e.target.checked)} className="mt-0.5 h-4 w-4 accent-primary" />
+          <span>
+            <span className="block font-label-md text-label-md font-bold text-primary">Exigir justificativa ao mudar para este status</span>
+            <span className="block text-body-sm text-on-surface-variant">
+              Ao escolher este status, o usuário precisa informar o motivo. Ele fica registrado no histórico do edital.
+            </span>
+          </span>
+        </label>
+      )}
       <Actions onClose={onCancel} busy={busy} submit={initial ? 'Salvar' : 'Criar'} />
     </form>
   )
@@ -312,6 +328,7 @@ function ListaOrdenavel({ secao, onEdit }: { secao: Secao; onEdit: (i: Item) => 
               <span className="h-3 w-3 shrink-0 rounded-full" style={{ background: it.cor }} />
               <span className="truncate font-label-md text-label-md font-bold text-primary">{it.nome}</span>
               <span className="shrink-0 text-body-sm text-outline">{usos} edital(is)</span>
+              {it.exigeMotivo && <span className="shrink-0 rounded bg-error-container/40 px-1.5 text-[10px] font-bold text-error">EXIGE MOTIVO</span>}
               {fixo && <span className="shrink-0 rounded bg-surface-container px-1.5 text-[10px] font-bold text-on-surface">DO SISTEMA</span>}
             </div>
             <div className="flex shrink-0 items-center gap-1">
@@ -386,7 +403,7 @@ export function ConfigModal({
       icon: 'flag',
       titulo: 'Status dos editais',
       descricao:
-        'Os status aparecem na tabela, nos filtros e no relatório. Um status só pode ser excluído quando nenhum edital o usa. "Aguardando Abertura" (inicial de todo edital novo) e "Retificado / Aditivo" (aplicado ao registrar uma retificação) são usados pelo sistema: podem ser renomeados, não excluídos.',
+        'Os status aparecem na tabela, nos filtros e no relatório. Um status só pode ser excluído quando nenhum edital o usa. Em cada status dá para marcar "exigir justificativa" (ex.: Descartado): ao mudar um edital para ele, o sistema pede o motivo. "Aguardando Abertura" (inicial de todo edital novo) e "Retificado / Aditivo" (aplicado ao registrar uma retificação) são usados pelo sistema: podem ser renomeados, não excluídos.',
       novo: 'Novo status',
       rotulo: 'do status',
       placeholder: 'Ex.: Recurso em andamento',
@@ -404,7 +421,7 @@ export function ConfigModal({
   if (mode.k === 'new') {
     return (
       <Modal title={secao.novo} icon="add_circle" onClose={onClose}>
-        <ItemForm rotulo={secao.rotulo} placeholder={secao.placeholder} onSubmit={secao.onCreate} onCancel={back} />
+        <ItemForm rotulo={secao.rotulo} placeholder={secao.placeholder} comMotivo={secao.id === 'status'} onSubmit={secao.onCreate} onCancel={back} />
       </Modal>
     )
   }
@@ -412,7 +429,7 @@ export function ConfigModal({
     const it = mode.item
     return (
       <Modal title={`Editar — ${it.nome}`} icon="edit" onClose={onClose}>
-        <ItemForm initial={it} rotulo={secao.rotulo} placeholder={secao.placeholder} onSubmit={(v) => secao.onUpdate(it.id, v)} onCancel={back} />
+        <ItemForm initial={it} rotulo={secao.rotulo} placeholder={secao.placeholder} comMotivo={secao.id === 'status'} onSubmit={(v) => secao.onUpdate(it.id, v)} onCancel={back} />
       </Modal>
     )
   }
