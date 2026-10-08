@@ -11,10 +11,10 @@ import {
   type PublicUser,
   type Resultado,
   type StatusCfg,
-  type StatusKey,
+  type Transicao,
 } from '../shared'
 import type { NewUser, UserPatch } from '../lib/api'
-import { brl, fmtTs, moneyToInput, parseMoney, regrasDoPortal } from '../lib/utils'
+import { brl, fmtTs, moneyToInput, parseMoney, regrasDoPortal, statusInfo } from '../lib/utils'
 import { DateInput, TimeInput } from './Inputs'
 
 export const input =
@@ -93,38 +93,61 @@ export function Actions({ onClose, busy, submit, danger }: { onClose: () => void
   )
 }
 
-// ---------- Motivo da mudança de status ----------
-export function MotivoModal({
+// ---------- Mudança de status (botões Avançar / Negativo) ----------
+export function TransicaoModal({
   edital,
-  status,
+  transicao,
+  statuses,
   onSave,
   onClose,
 }: {
   edital: Edital
-  status: StatusCfg
-  onSave: (motivo: string) => Promise<boolean>
+  transicao: Transicao
+  statuses: StatusCfg[]
+  onSave: (v: { motivo?: string; valor?: number }) => Promise<boolean>
   onClose: () => void
 }) {
   const [motivo, setMotivo] = useState('')
+  const [valor, setValor] = useState(moneyToInput(transicao.exige === 'valorGanho' ? edital.valorGanho : edital.valorHomologado))
   const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+  const de = statuses.find((s) => s.id === transicao.de)?.nome ?? transicao.de
+  const para = statuses.find((s) => s.id === transicao.para)?.nome ?? transicao.para
+  const comValor = transicao.exige === 'valorGanho' || transicao.exige === 'valorHomologado'
+
   const submit = async (e: FormEvent) => {
     e.preventDefault()
+    let v: number | undefined
+    if (comValor) {
+      const n = parseMoney(valor)
+      if (n === null || !(n > 0)) return setErr('Informe o valor total (maior que zero). Ex.: 15000, 15.000,50')
+      v = n
+    }
+    setErr(null)
     setBusy(true)
-    const ok = await onSave(motivo.trim())
+    const ok = await onSave(transicao.exige === 'motivo' ? { motivo: motivo.trim() } : comValor ? { valor: v } : {})
     setBusy(false)
     if (ok) onClose()
   }
   return (
-    <Modal title={`Mudar para "${status.nome}"`} icon="rule" onClose={onClose}>
+    <Modal title={transicao.rotulo} icon={transicao.negativo ? 'block' : 'arrow_circle_right'} onClose={onClose}>
       <form onSubmit={submit} className="flex flex-col gap-space-md">
         <p className="text-body-sm text-on-surface-variant">
           Edital <b>{edital.num || `#${edital.id}`}</b>
-          {edital.orgao ? ` • ${edital.orgao}` : ''}. Este status exige uma justificativa, que fica registrada no histórico do edital.
+          {edital.orgao ? ` • ${edital.orgao}` : ''}. O status muda de <b>{de}</b> para <b>{para}</b> e fica registrado no histórico.
         </p>
-        <Field label="Motivo *">
-          <textarea required autoFocus rows={4} maxLength={500} className={`${input} h-auto py-2`} placeholder="Descreva o motivo" value={motivo} onChange={(e) => setMotivo(e.target.value)} />
-        </Field>
-        <Actions onClose={onClose} busy={busy} submit="Confirmar mudança" />
+        {transicao.exige === 'motivo' && (
+          <Field label="Motivo *">
+            <textarea required autoFocus rows={4} maxLength={500} className={`${input} h-auto py-2`} placeholder="Descreva o motivo" value={motivo} onChange={(e) => setMotivo(e.target.value)} />
+          </Field>
+        )}
+        {comValor && (
+          <Field label={transicao.exige === 'valorGanho' ? 'Valor total ganho (R$) *' : 'Valor total homologado (R$) *'}>
+            <input required autoFocus inputMode="decimal" autoComplete="off" className={input} placeholder="Ex.: 15.000,50" value={valor} onChange={(e) => setValor(e.target.value)} />
+          </Field>
+        )}
+        {err && <div className="rounded-lg bg-error-container/50 px-3 py-2 text-body-sm font-medium text-on-error-container">{err}</div>}
+        <Actions onClose={onClose} busy={busy} submit="Confirmar" danger={transicao.negativo} />
       </form>
     </Modal>
   )
@@ -143,10 +166,9 @@ export function EditalModal({
   categorias: CategoriaCfg[]
   portais: Portal[]
   statuses: StatusCfg[]
-  onSave: (v: EditalInput, motivo?: string) => Promise<boolean>
+  onSave: (v: EditalInput) => Promise<boolean>
   onClose: () => void
 }) {
-  const [motivo, setMotivo] = useState('')
   const [f, setF] = useState({
     // ao cadastrar a categoria começa vazia (para ninguém esquecer); ao editar mantém a que já está salva
     cat: initial?.cat ?? '',
@@ -158,10 +180,11 @@ export function EditalModal({
     uf: initial?.uf ?? '',
     objeto: initial?.objeto ?? '',
     valorGanho: moneyToInput(initial?.valorGanho ?? 0),
+    valorHomologado: moneyToInput(initial?.valorHomologado ?? 0),
     portal: initial?.portal ?? '',
     data: initial?.data ?? '',
     hora: initial?.hora ?? '',
-    status: (initial?.status ?? 'PREP') as StatusKey,
+    status: initial?.status ?? 'PREP',
     resultado: (initial?.resultado ?? '') as Resultado,
   })
   const [busy, setBusy] = useState(false)
@@ -174,8 +197,6 @@ export function EditalModal({
   const req = (k: keyof typeof regras) => regras[k] === 'obrigatorio'
   const lbl = (text: string, k: keyof typeof regras) => (req(k) ? `${text} *` : text)
   // portal que já não está cadastrado (excluído/renomeado) continua aparecendo no edital que o usa
-  // status escolhido agora (diferente do salvo) que exige justificativa
-  const exigeMotivo = !!initial && f.status !== initial.status && !!statuses.find((s) => s.id === f.status)?.exigeMotivo
   const portalOrfao = f.portal && !portais.some((p) => p.nome === f.portal)
 
   const submit = async (e: FormEvent) => {
@@ -183,9 +204,11 @@ export function EditalModal({
     const valorGanho = parseMoney(f.valorGanho)
     if (valorGanho === null) return setErr('Valor ganho inválido. Use só números, por exemplo 15000, 15.000,50 ou 15000.50.')
     if (initial && req('valorGanho') && !(valorGanho > 0)) return setErr('Informe o valor ganho (campo obrigatório para este portal).')
+    const valorHomologado = parseMoney(f.valorHomologado)
+    if (valorHomologado === null) return setErr('Valor homologado inválido. Use só números, por exemplo 15000 ou 15.000,50.')
     setErr(null)
     setBusy(true)
-    const ok = await onSave({ ...f, valorGanho, uf: f.uf.toUpperCase() }, exigeMotivo ? motivo.trim() : undefined)
+    const ok = await onSave({ ...f, valorGanho, valorHomologado, uf: f.uf.toUpperCase() })
     setBusy(false)
     if (ok) onClose()
   }
@@ -261,16 +284,13 @@ export function EditalModal({
             <TimeInput required={req('hora')} className={input} value={f.hora} onChange={(v) => set('hora', v)} />
           </Field>
         )}
-        <Field label="Status">
-          <select className={input} value={f.status} onChange={(e) => set('status', e.target.value as StatusKey)}>
-            {statuses.map((s) => (
-              <option key={s.id} value={s.id}>{s.nome}</option>
-            ))}
-          </select>
-        </Field>
-        {exigeMotivo && (
-          <Field label="Motivo da mudança de status *" className="col-span-2">
-            <textarea required rows={2} maxLength={500} className={`${input} h-auto py-2`} placeholder="Explique por que o status está mudando" value={motivo} onChange={(e) => setMotivo(e.target.value)} />
+        {initial && (
+          <Field label="Status atual">
+            <div className="flex h-9 items-center gap-2 rounded-lg bg-surface-container-low px-3">
+              <span className="h-2.5 w-2.5 rounded-full" style={{ background: statusInfo(statuses, initial.status).cor }} />
+              <span className="font-semibold">{statusInfo(statuses, initial.status).nome}</span>
+            </div>
+            <span className="text-[11px] text-outline">O status muda pelos botões Avançar / Negativo da tabela.</span>
           </Field>
         )}
         {initial && show('valorGanho') && (
@@ -285,6 +305,19 @@ export function EditalModal({
               onChange={(e) => set('valorGanho', e.target.value)}
             />
             <span className="text-[11px] text-outline">Aceita centavos. Deixe vazio enquanto não ganhou.</span>
+          </Field>
+        )}
+        {initial && (
+          <Field label="Valor homologado (R$)">
+            <input
+              inputMode="decimal"
+              autoComplete="off"
+              className={input}
+              placeholder="Ex.: 15.000,50"
+              value={f.valorHomologado}
+              onChange={(e) => set('valorHomologado', e.target.value)}
+            />
+            <span className="text-[11px] text-outline">Preenchido ao homologar; use aqui só para corrigir.</span>
           </Field>
         )}
         {initial && show('resultado') && (

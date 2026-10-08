@@ -45,6 +45,8 @@ import {
   type PublicUser,
   type StatusCfg,
   type StatusKey,
+  type Transicao,
+  type ExigeTransicao,
   type Unchanged,
 } from '../src/shared'
 
@@ -73,6 +75,7 @@ interface DbFile {
   portais: Portal[]
   categorias: CategoriaCfg[]
   statuses: StatusCfg[]
+  transicoes: Transicao[]
   legacy?: { nome: string; cargo: string }
 }
 
@@ -108,6 +111,7 @@ const emptyDb = (): DbFile => ({
   portais: [],
   categorias: CATEGORIAS_INICIAIS.map((c) => ({ ...c })),
   statuses: STATUS_INICIAIS.map((s) => ({ ...s })),
+  transicoes: [],
 })
 
 let cache: DbFile | null = null
@@ -171,6 +175,66 @@ function str(v: unknown, field: string, required: boolean, max = 2000): string {
   return s
 }
 
+const EXIGE_VALORES: ExigeTransicao[] = ['nada', 'motivo', 'valorGanho', 'valorHomologado']
+const semAcento = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim()
+
+/** Lê as ligações gravadas ignorando o que for inválido (status que não existe, par repetido, etc.). */
+function lerTransicoes(raw: any, statuses: StatusCfg[]): Transicao[] {
+  const out: Transicao[] = []
+  for (const t of Array.isArray(raw) ? raw : []) {
+    if (!t || !statuses.some((s) => s.id === t.de) || !statuses.some((s) => s.id === t.para) || t.de === t.para) continue
+    if (out.some((x) => x.de === t.de && x.para === t.para)) continue
+    out.push({
+      de: t.de,
+      para: t.para,
+      rotulo: typeof t.rotulo === 'string' && t.rotulo.trim() ? t.rotulo.trim().slice(0, 40) : statuses.find((s) => s.id === t.para)!.nome,
+      negativo: t.negativo === true,
+      exige: EXIGE_VALORES.includes(t.exige) ? t.exige : 'nada',
+      resultado: t.resultado === 'GANHAMOS' || t.resultado === 'PERDEMOS' ? t.resultado : '',
+    })
+  }
+  return out
+}
+
+/**
+ * Bancos criados antes do fluxo ganham um fluxo inicial montado pelos nomes dos status:
+ * Aguardando cadastro → Cadastrado → Ganho/Perdido → Homologado, e Descartado / Fracassado / Desclassificado como saídas negativas.
+ * Se o banco não tem esses status, o fluxo começa vazio (mudança livre) e o administrador monta o dele.
+ */
+function fluxoInicial(statuses: StatusCfg[]): Transicao[] {
+  const acha = (...nomes: string[]) => statuses.find((s) => nomes.includes(semAcento(s.nome)))
+  const garante = (id: string, nome: string, cor: string, ...apelidos: string[]) => {
+    const ex = acha(nome.toLowerCase(), ...apelidos)
+    if (ex) return ex
+    let novo = id
+    for (let i = 2; statuses.some((s) => s.id === novo); i++) novo = `${id}-${i}`
+    const s: StatusCfg = { id: novo, nome, cor }
+    statuses.push(s)
+    return s
+  }
+  const inicio = statuses.find((s) => s.id === 'PREP')
+  const cadastrado = acha('cadastrado')
+  if (!inicio || !cadastrado) return []
+  const ganho = garante('GANHO', 'Ganho', '#16a34a', 'ganhamos', 'ganhou')
+  const perdido = garante('PERDIDO', 'Perdido', '#dc2626', 'perdemos', 'perdeu')
+  const homologado = acha('homologado')
+  const descartado = acha('descartado')
+  const fracassado = acha('fracassado')
+  const desclassificado = acha('desclassificado')
+  const t = (de: StatusCfg, para: StatusCfg | undefined, rotulo: string, extra: Partial<Transicao> = {}): Transicao[] =>
+    para ? [{ de: de.id, para: para.id, rotulo, negativo: false, exige: 'nada', resultado: '', ...extra }] : []
+  return [
+    ...t(inicio, cadastrado, 'Cadastrar'),
+    ...t(cadastrado, ganho, 'Ganhamos', { exige: 'valorGanho', resultado: 'GANHAMOS' }),
+    ...t(cadastrado, perdido, 'Perdemos', { resultado: 'PERDEMOS' }),
+    ...t(ganho, homologado, 'Homologar', { exige: 'valorHomologado' }),
+    ...t(inicio, descartado, 'Descartar', { negativo: true, exige: 'motivo' }),
+    ...t(cadastrado, descartado, 'Descartar', { negativo: true, exige: 'motivo' }),
+    ...t(cadastrado, fracassado, 'Fracassou', { negativo: true, exige: 'motivo' }),
+    ...t(cadastrado, desclassificado, 'Desclassificado', { negativo: true, exige: 'motivo' }),
+  ]
+}
+
 // ---------- leitura / gravação ----------
 function normalize(raw: any): DbFile {
   const base = emptyDb()
@@ -192,6 +256,7 @@ function normalize(raw: any): DbFile {
       resultado: e.resultado === 'GANHAMOS' || e.resultado === 'PERDEMOS' ? e.resultado : '',
       log: Array.isArray(e.log) ? e.log : [],
       valorGanho: Number.isFinite(ganho) && ganho > 0 ? ganho : 0,
+      valorHomologado: Number.isFinite(Number(e.valorHomologado)) && Number(e.valorHomologado) > 0 ? Number(e.valorHomologado) : 0,
     }
   })
   const users: UserRecord[] = (Array.isArray(raw.users) ? raw.users : [])
@@ -231,16 +296,24 @@ function normalize(raw: any): DbFile {
   // status: os cadastrados; bancos antigos recebem os 5 originais
   const statuses: StatusCfg[] = (Array.isArray(raw.statuses) ? raw.statuses : [])
     .filter((s: any) => s && typeof s.id === 'string' && s.id && typeof s.nome === 'string')
-    .map((s: any) => ({ id: s.id, nome: s.nome, cor: COR_RE.test(s.cor) ? s.cor : '#64748b', ...(s.exigeMotivo === true ? { exigeMotivo: true } : {}) }))
+    .map((s: any) => ({
+      id: s.id,
+      nome: s.nome,
+      cor: COR_RE.test(s.cor) ? s.cor : '#64748b',
+      ...(Number.isFinite(s.x) && Number.isFinite(s.y) ? { x: s.x, y: s.y } : {}),
+    }))
   if (!Array.isArray(raw.statuses)) statuses.push(...STATUS_INICIAIS.map((s) => ({ ...s })))
   for (const id of [...STATUS_FIXOS, ...editais.map((e) => e.status)]) {
     if (!statuses.some((s) => s.id === id)) statuses.push(STATUS_INICIAIS.find((s) => s.id === id) ?? { id: String(id), nome: String(id), cor: '#64748b' })
   }
 
+  const transicoes = Array.isArray(raw.transicoes) ? lerTransicoes(raw.transicoes, statuses) : fluxoInicial(statuses)
+
   const out: DbFile = {
     version: 2,
     rev: Number(raw.rev) || 0,
     statuses,
+    transicoes,
     nextPortalId,
     portais,
     categorias,
@@ -377,6 +450,11 @@ function parseEdital(body: any, partial: boolean): Partial<EditalInput> {
     if (!Number.isFinite(v) || v < 0 || v > 1e12) throw new ValidationError('Valor ganho inválido')
     out.valorGanho = Math.round(v * 100) / 100 // centavos
   }
+  if (has('valorHomologado')) {
+    const v = Number(body.valorHomologado ?? 0)
+    if (!Number.isFinite(v) || v < 0 || v > 1e12) throw new ValidationError('Valor homologado inválido')
+    out.valorHomologado = Math.round(v * 100) / 100
+  }
   if (has('portal')) out.portal = str(body.portal, 'Portal', false, 60)
   if (has('data')) {
     const d = str(body.data, 'Data', false, 10)
@@ -446,6 +524,7 @@ function view(d: DbFile, userId: number): AppState {
     })(),
     categorias: d.categorias,
     statuses: d.statuses,
+    transicoes: d.transicoes,
   }
 }
 
@@ -462,6 +541,7 @@ const CAMPOS: Array<[keyof EditalInput, string]> = [
   ['cat', 'Categoria'], ['num', 'Nº do edital'], ['uasg', 'UASG / Nº de identificação'], ['portal', 'Portal'],
   ['orgao', 'Órgão comprador'], ['cidade', 'Cidade'], ['uf', 'UF'], ['objeto', 'Objeto'], ['mod', 'Modalidade'],
   ['data', 'Data limite'], ['hora', 'Horário'], ['status', 'Status'], ['resultado', 'Resultado'], ['valorGanho', 'Valor ganho'],
+  ['valorHomologado', 'Valor homologado'],
 ]
 const BRL = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' })
 function mostra(d: DbFile, k: keyof EditalInput, v: any): string {
@@ -469,9 +549,9 @@ function mostra(d: DbFile, k: keyof EditalInput, v: any): string {
   if (k === 'status') return d.statuses.find((s) => s.id === v)?.nome ?? String(v)
   if (k === 'resultado') return v ? RESULTADOS[v as 'GANHAMOS' | 'PERDEMOS'] : 'Em andamento'
   if (k === 'cat') return d.categorias.find((c) => c.id === v)?.nome ?? String(v)
-  if (k === 'valorGanho') return v ? BRL.format(v) : '—'
+  if (k === 'valorGanho' || k === 'valorHomologado') return v ? BRL.format(v) : '—'
   if (k === 'data') return v ? String(v).split('-').reverse().join('/') : 'A definir'
-  if (k === 'hora') return v ? `${v}h` : '—'
+  if (k === 'hora') return v || '—'
   return v === '' || v == null ? '—' : String(v)
 }
 /** Compara o edital atual com o que vai ser gravado e lista só o que mudou. */
@@ -642,8 +722,8 @@ export const db = {
 
   // ===== editais (todos os usuários enxergam e alteram os mesmos dados) =====
   createEdital(user: UserRecord, body: any): Promise<AppState> {
-    // valor ganho e resultado só são preenchidos na edição
-    const v = parseEdital({ mod: 0, cidade: '', portal: '', data: '', hora: '', status: 'PREP', ...body, valorGanho: 0, resultado: '' }, false) as EditalInput
+    // todo edital novo começa no status inicial; valores e resultado vêm depois, pelo fluxo
+    const v = parseEdital({ mod: 0, cidade: '', portal: '', data: '', hora: '', ...body, status: 'PREP', valorGanho: 0, valorHomologado: 0, resultado: '' }, false) as EditalInput
     return mutate((d) => {
       const me = actorIn(d, user)
       conferirEdital(d, v, portaisPermitidos(d, me), undefined, true)
@@ -659,6 +739,8 @@ export const db = {
     const patch = parseEdital(body, true)
     const expectedV = body?.v !== undefined ? Number(body.v) : undefined
     const motivo = str(body?.motivo, 'Motivo', false, 500)
+    const valor = Math.round((Number(body?.valor) || 0) * 100) / 100
+    if (!Number.isFinite(valor) || valor < 0 || valor > 1e12) throw new ValidationError('Valor inválido')
     return mutate((d) => {
       const me = actorIn(d, user)
       const e = d.editais.find((x) => x.id === id)
@@ -671,10 +753,19 @@ export const db = {
       // o formulário completo (que traz categoria e portal) é conferido contra as regras do portal; trocas rápidas (status, resultado) não
       if (patch.cat !== undefined || patch.portal !== undefined) conferirEdital(d, { ...e, ...patch } as EditalInput, portaisPermitidos(d, me), e.portal)
       else if (patch.status !== undefined && !d.statuses.some((s) => s.id === patch.status)) throw new ValidationError('Status inválido')
-      // status que exige justificativa: a troca só vale com o motivo preenchido
+      // mudança de status: só vale se existir a ligação no fluxo, com o que ela exigir preenchido
       const trocouStatus = patch.status !== undefined && patch.status !== e.status
-      const novoStatus = trocouStatus ? d.statuses.find((s) => s.id === patch.status) : undefined
-      if (novoStatus?.exigeMotivo && !motivo) throw new ValidationError(`Informe o motivo para mudar o status para "${novoStatus.nome}"`)
+      if (trocouStatus && d.transicoes.length) {
+        const t = d.transicoes.find((x) => x.de === e.status && x.para === patch.status)
+        if (!t) {
+          const nome = (id: string) => d.statuses.find((s) => s.id === id)?.nome ?? id
+          throw new ValidationError(`O fluxo não permite mudar de "${nome(e.status)}" para "${nome(patch.status!)}".`)
+        }
+        if (t.exige === 'motivo' && !motivo) throw new ValidationError(`Informe o motivo (${t.rotulo}).`)
+        if ((t.exige === 'valorGanho' || t.exige === 'valorHomologado') && !(valor > 0)) throw new ValidationError(`Informe o valor total (${t.rotulo}).`)
+        if (t.exige === 'valorGanho' || t.exige === 'valorHomologado') patch[t.exige] = valor
+        if (t.resultado) patch.resultado = t.resultado
+      }
       const mudancas = diffEdital(d, e, patch)
       Object.assign(e, patch)
       if (mudancas.length) addLog(e, me, 'alterou', mudancas, trocouStatus ? motivo : undefined)
@@ -704,14 +795,16 @@ export const db = {
       const e = d.editais.find((x) => x.id === id)
       if (!e || !enxerga(portaisPermitidos(d, me), e)) throw new NotFoundError('Edital não encontrado')
       let dias = 0
-      const mudancas = diffEdital(d, e, { data: data || undefined, hora: hora || undefined, status: 'RETIF' })
+      // com fluxo configurado a retificação não tira o edital do ponto em que ele está; sem fluxo, vira "Retificado"
+      const livre = d.transicoes.length === 0
+      const mudancas = diffEdital(d, e, { data: data || undefined, hora: hora || undefined, status: livre ? 'RETIF' : undefined })
       if (data && data !== e.data) {
         if (e.data) dias = Math.max(dayDiff(e.data, data), 0)
         e.data = data
       }
       if (hora) e.hora = hora
       e.retifs.push({ ts: Date.now(), desc, dias, por: who(me) })
-      e.status = 'RETIF'
+      if (livre) e.status = 'RETIF'
       addLog(e, me, 'retificou', mudancas, desc)
       stamp(e, me)
       return view(d, me.id)
@@ -819,14 +912,13 @@ export const db = {
   createStatus(admin: UserRecord, body: any): Promise<AppState> {
     const nome = str(body?.nome, 'Nome do status', true, 40)
     const cor = cleanCor(body?.cor)
-    const exigeMotivo = body?.exigeMotivo === true
     return mutate((d) => {
       const me = actorIn(d, admin, true)
       if (d.statuses.some((s) => s.nome.toLowerCase() === nome.toLowerCase())) throw new ValidationError('Já existe um status com esse nome')
       const base = nome.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/[^A-Z0-9]+/g, '-').replace(/^-|-$/g, '') || 'STATUS'
       let id = base
       for (let i = 2; d.statuses.some((s) => s.id === id); i++) id = `${base}-${i}`
-      d.statuses.push({ id, nome, cor, ...(exigeMotivo ? { exigeMotivo } : {}) })
+      d.statuses.push({ id, nome, cor })
       return view(d, me.id)
     })
   },
@@ -834,7 +926,6 @@ export const db = {
   updateStatus(admin: UserRecord, id: string, body: any): Promise<AppState> {
     const nome = str(body?.nome, 'Nome do status', true, 40)
     const cor = cleanCor(body?.cor)
-    const exigeMotivo = body?.exigeMotivo === true
     return mutate((d) => {
       const me = actorIn(d, admin, true)
       const s = d.statuses.find((x) => x.id === id)
@@ -842,8 +933,6 @@ export const db = {
       if (d.statuses.some((x) => x.id !== id && x.nome.toLowerCase() === nome.toLowerCase())) throw new ValidationError('Já existe um status com esse nome')
       s.nome = nome
       s.cor = cor
-      if (exigeMotivo) s.exigeMotivo = true
-      else delete s.exigeMotivo
       return view(d, me.id)
     })
   },
@@ -856,6 +945,27 @@ export const db = {
       const usados = d.editais.filter((e) => e.status === id).length
       if (usados) throw new ValidationError(`Este status é usado por ${usados} edital(is). Mude o status deles antes de excluí-lo.`)
       d.statuses = d.statuses.filter((s) => s.id !== id)
+      d.transicoes = d.transicoes.filter((t) => t.de !== id && t.para !== id)
+      return view(d, me.id)
+    })
+  },
+
+  /** Grava de uma vez as ligações do fluxo e a posição de cada status no mapa. Só administradores. */
+  salvarFluxo(admin: UserRecord, body: any): Promise<AppState> {
+    if (!Array.isArray(body?.transicoes)) throw new ValidationError('Fluxo inválido')
+    const pos = body?.posicoes && typeof body.posicoes === 'object' ? body.posicoes : {}
+    return mutate((d) => {
+      const me = actorIn(d, admin, true)
+      const lidas = lerTransicoes(body.transicoes, d.statuses)
+      if (lidas.length !== body.transicoes.length) throw new ValidationError('Há ligações inválidas ou repetidas no fluxo')
+      d.transicoes = lidas
+      for (const s of d.statuses) {
+        const p = pos[s.id]
+        if (p && Number.isFinite(p.x) && Number.isFinite(p.y)) {
+          s.x = Math.round(Math.min(Math.max(p.x, 0), 5000))
+          s.y = Math.round(Math.min(Math.max(p.y, 0), 5000))
+        }
+      }
       return view(d, me.id)
     })
   },

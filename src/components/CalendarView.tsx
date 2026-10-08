@@ -217,7 +217,7 @@ export default function CalendarView({ editais, portais, categorias, statuses, o
           return (
             <div key={e.id} className="rounded-lg border border-surface-container p-space-sm" style={{ borderLeft: `4px solid ${cor(pn)}` }}>
               <div className="flex items-center justify-between gap-2">
-                <span className="font-data-mono text-[12px] font-bold text-primary">{e.hora ? `${e.hora}h` : 'Sem horário'}</span>
+                <span className="font-data-mono text-[12px] font-bold text-primary">{e.hora || 'Sem horário'}</span>
                 <span className="truncate text-[11px] font-semibold" style={{ color: cor(pn) }}>{pn}</span>
               </div>
               <div className="mt-0.5 font-label-md text-label-md font-bold text-on-surface">{e.num || `Edital #${e.id}`}</div>

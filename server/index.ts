@@ -144,6 +144,8 @@ route('POST', /^\/api\/status\/ordem$/, true, async (c) => ({ body: await db.reo
 route('PUT', /^\/api\/status\/([\w-]+)$/, true, async (c, m) => ({ body: await db.updateStatus(c.user!, m[1], c.body) }))
 route('DELETE', /^\/api\/status\/([\w-]+)$/, true, async (c, m) => ({ body: await db.deleteStatus(c.user!, m[1]) }))
 
+route('POST', /^\/api\/fluxo$/, true, async (c) => ({ body: await db.salvarFluxo(c.user!, c.body) }))
+
 // editais
 route('POST', /^\/api\/editais$/, true, async (c) => ({ status: 201, body: await db.createEdital(c.user!, c.body) }))
 route('POST', /^\/api\/editais\/delete$/, true, async (c) => ({

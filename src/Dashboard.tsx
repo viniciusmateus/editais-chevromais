@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { RESULTADOS, type AppState, type PublicUser, type StatusKey } from './shared'
+import { type AppState, type PublicUser, type Transicao } from './shared'
 import { api, ApiError } from './lib/api'
-import { exportCsv, inPeriod, todayIso, type Periodo } from './lib/utils'
+import { chaveDataHora, exportCsv, inPeriod, todayIso, type Periodo } from './lib/utils'
 import Sidebar, { type Nav } from './components/Sidebar'
 import Header from './components/Header'
 import FilterBar from './components/FilterBar'
@@ -10,19 +10,19 @@ import RegionPanel from './components/RegionPanel'
 import RetifPanel from './components/RetifPanel'
 import EditalTable, { type Tab } from './components/EditalTable'
 import CalendarView from './components/CalendarView'
-import { EditalModal, HistModal, MotivoModal, ProfileModal, ReportModal, RetifModal, UsersModal } from './components/Modals'
-import { ConfigModal, PortaisModal } from './components/Admin'
+import { EditalModal, HistModal, ProfileModal, ReportModal, RetifModal, TransicaoModal, UsersModal } from './components/Modals'
+import { PortaisModal } from './components/Admin'
+import ConfigPage from './components/ConfigPage'
 
 type ModalState =
   | { type: 'edital'; id?: number; v?: number }
   | { type: 'retif'; id?: number }
   | { type: 'hist'; id: number }
-  | { type: 'motivo'; id: number; status: StatusKey }
+  | { type: 'transicao'; id: number; t: Transicao }
   | { type: 'report' }
   | { type: 'profile' }
   | { type: 'users' }
   | { type: 'portais' }
-  | { type: 'config' }
   | null
 
 const POLL_MS = 4000
@@ -119,7 +119,7 @@ export default function Dashboard({ onLogout }: { onLogout: () => void }) {
   // se outra pessoa excluir o edital que está aberto num modal, fecha o modal
   useEffect(() => {
     if (!state || !modal) return
-    const id = modal.type === 'edital' || modal.type === 'retif' || modal.type === 'hist' || modal.type === 'motivo' ? modal.id : undefined
+    const id = modal.type === 'edital' || modal.type === 'retif' || modal.type === 'hist' || modal.type === 'transicao' ? modal.id : undefined
     if (id !== undefined && !state.editais.some((x) => x.id === id)) {
       setModal(null)
       notify('Este edital foi excluído por outro usuário.', true)
@@ -172,8 +172,8 @@ export default function Dashboard({ onLogout }: { onLogout: () => void }) {
         return true
       })
       .sort((a, b) => {
-        const A = a.data || '9999-12-31'
-        const B = b.data || '9999-12-31'
+        const A = chaveDataHora(a)
+        const B = chaveDataHora(b)
         return sortAsc ? A.localeCompare(B) : B.localeCompare(A)
       })
   }, [editais, tab, fCat, fPer, fStatus, q, sortAsc])
@@ -195,19 +195,16 @@ export default function Dashboard({ onLogout }: { onLogout: () => void }) {
     if (n === 'perfil') return setModal({ type: 'profile' })
     if (n === 'usuarios') return setModal({ type: 'users' })
     if (n === 'portais') return setModal({ type: 'portais' })
-    if (n === 'configuracoes') return setModal({ type: 'config' })
     setNav(n)
-    if (n === 'calendario') return window.scrollTo({ top: 0, behavior: 'smooth' })
+    if (n === 'calendario' || n === 'configuracoes') return window.scrollTo({ top: 0, behavior: 'smooth' })
     setTab(n === 'RETIF' ? 'RETIF' : 'ALL')
     scrollToTable()
   }
 
-  /** Troca rápida de status: se o status exige justificativa, abre o modal do motivo antes de gravar. */
-  const mudarStatus = (id: number, status: StatusKey) => {
-    const atual = editais.find((x) => x.id === id)
-    if (!atual || atual.status === status) return
-    if (state?.statuses.find((s) => s.id === status)?.exigeMotivo) return setModal({ type: 'motivo', id, status })
-    void act(() => api.updateEdital(id, { status }), 'Status atualizado.')
+  /** Botão do fluxo: sem exigência grava direto; com motivo/valor, abre o modal antes de gravar. */
+  const usarTransicao = (id: number, t: Transicao) => {
+    if (t.exige === 'nada') void act(() => api.updateEdital(id, { status: t.para }), `Status: ${state?.statuses.find((s) => s.id === t.para)?.nome ?? t.rotulo}.`)
+    else setModal({ type: 'transicao', id, t })
   }
 
   const onTab = (t: Tab) => {
@@ -283,6 +280,30 @@ export default function Dashboard({ onLogout }: { onLogout: () => void }) {
           )}
           <div className="flex w-full flex-col gap-space-lg pb-12 pt-space-lg">
             {/* Topo */}
+            {nav === 'configuracoes' && isAdmin ? (
+                  <ConfigPage
+              categorias={state.categorias}
+              statuses={state.statuses}
+              transicoes={state.transicoes}
+              editais={editais}
+              onSaveFluxo={(v) => act(() => api.salvarFluxo(v), 'Fluxo salvo.')}
+              onCreateCat={(v) => act(() => api.createCategoria(v), 'Categoria criada.')}
+              onUpdateCat={(id, v) => act(() => api.updateCategoria(id, v), 'Categoria atualizada.')}
+              onDeleteCat={(c, usos) => {
+                if (usos) return notify(`A categoria ${c.nome} é usada por ${usos} edital(is). Mude a categoria deles antes de excluí-la.`, true)
+                if (confirm(`Excluir a categoria ${c.nome}?`)) void act(() => api.deleteCategoria(c.id), 'Categoria excluída.')
+              }}
+              onReorderCat={(ids) => act(() => api.reordenarCategorias(ids))}
+              onReorderStatus={(ids) => act(() => api.reordenarStatus(ids))}
+              onCreateStatus={(v) => act(() => api.createStatus(v), 'Status criado.')}
+              onUpdateStatus={(id, v) => act(() => api.updateStatus(id, v), 'Status atualizado.')}
+              onDeleteStatus={(s, usos) => {
+                if (usos) return notify(`O status ${s.nome} é usado por ${usos} edital(is). Mude o status deles antes de excluí-lo.`, true)
+                if (confirm(`Excluir o status ${s.nome}?`)) void act(() => api.deleteStatus(s.id), 'Status excluído.')
+              }}
+            />
+            ) : (
+              <>
             <div className="flex flex-col justify-between gap-space-md rounded-xl bg-surface-container-lowest p-space-lg shadow-sm xl:flex-row xl:items-center">
               <div className="flex flex-col gap-0.5">
                 <div className="flex items-center gap-space-sm">
@@ -372,14 +393,17 @@ export default function Dashboard({ onLogout }: { onLogout: () => void }) {
                 onSort={() => setSortAsc((v) => !v)}
                 selected={selected}
                 onToggle={toggle}
-                onStatus={mudarStatus}
-                onResultado={(id, resultado) => void act(() => api.updateEdital(id, { resultado }), resultado ? `Marcado como ${RESULTADOS[resultado]}.` : 'Resultado removido.')}
+                onTransicao={usarTransicao}
+                transicoes={state.transicoes}
                 onRetif={(id) => setModal({ type: 'retif', id })}
                 onHist={(id) => setModal({ type: 'hist', id })}
                 onEdit={(id) => setModal({ type: 'edital', id, v: editais.find((x) => x.id === id)?.v })}
                 onExportSel={() => (selectedEditais.length ? exportCsv(selectedEditais, state.categorias, state.statuses) : notify('Nenhum edital marcado.', true))}
               />
             </div>
+              </>
+            )}
+
               </>
             )}
 
@@ -402,9 +426,9 @@ export default function Dashboard({ onLogout }: { onLogout: () => void }) {
           portais={state.portais}
           statuses={state.statuses}
           onClose={closeModal}
-          onSave={(v, motivo) =>
+          onSave={(v) =>
             act(
-              () => (modalEdital ? api.updateEdital(modalEdital.id, { ...v, v: modal.v, motivo }) : api.createEdital(v)),
+              () => (modalEdital ? api.updateEdital(modalEdital.id, { ...v, v: modal.v }) : api.createEdital(v)),
               modalEdital ? 'Edital atualizado.' : 'Edital registrado.',
             )
           }
@@ -419,12 +443,13 @@ export default function Dashboard({ onLogout }: { onLogout: () => void }) {
         />
       )}
       {modal?.type === 'hist' && modalEdital && <HistModal edital={modalEdital} onClose={closeModal} />}
-      {modal?.type === 'motivo' && modalEdital && state.statuses.some((s) => s.id === modal.status) && (
-        <MotivoModal
+      {modal?.type === 'transicao' && modalEdital && (
+        <TransicaoModal
           edital={modalEdital}
-          status={state.statuses.find((s) => s.id === modal.status)!}
+          transicao={modal.t}
+          statuses={state.statuses}
           onClose={closeModal}
-          onSave={(motivo) => act(() => api.updateEdital(modal.id, { status: modal.status, motivo }), 'Status atualizado.')}
+          onSave={(v) => act(() => api.updateEdital(modal.id, { status: modal.t.para, ...v }), 'Status atualizado.')}
         />
       )}
       {modal?.type === 'report' && (
@@ -489,28 +514,6 @@ export default function Dashboard({ onLogout }: { onLogout: () => void }) {
           onDelete={(p, usos) => {
             const aviso = usos ? ` Os ${usos} edital(is) que usam este portal continuam com o nome dele, mas passam a seguir as regras padrão.` : ''
             if (confirm(`Excluir o portal ${p.nome}?${aviso}`)) void act(() => api.deletePortal(p.id), 'Portal excluído.')
-          }}
-        />
-      )}
-      {modal?.type === 'config' && isAdmin && (
-        <ConfigModal
-          categorias={state.categorias}
-          statuses={state.statuses}
-          editais={editais}
-          onClose={closeModal}
-          onCreateCat={(v) => act(() => api.createCategoria(v), 'Categoria criada.')}
-          onUpdateCat={(id, v) => act(() => api.updateCategoria(id, v), 'Categoria atualizada.')}
-          onDeleteCat={(c, usos) => {
-            if (usos) return notify(`A categoria ${c.nome} é usada por ${usos} edital(is). Mude a categoria deles antes de excluí-la.`, true)
-            if (confirm(`Excluir a categoria ${c.nome}?`)) void act(() => api.deleteCategoria(c.id), 'Categoria excluída.')
-          }}
-          onReorderCat={(ids) => act(() => api.reordenarCategorias(ids))}
-          onReorderStatus={(ids) => act(() => api.reordenarStatus(ids))}
-          onCreateStatus={(v) => act(() => api.createStatus(v), 'Status criado.')}
-          onUpdateStatus={(id, v) => act(() => api.updateStatus(id, v), 'Status atualizado.')}
-          onDeleteStatus={(s, usos) => {
-            if (usos) return notify(`O status ${s.nome} é usado por ${usos} edital(is). Mude o status deles antes de excluí-lo.`, true)
-            if (confirm(`Excluir o status ${s.nome}?`)) void act(() => api.deleteStatus(s.id), 'Status excluído.')
           }}
         />
       )}

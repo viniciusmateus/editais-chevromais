@@ -171,38 +171,33 @@ export function PortaisModal({
 // ---------- Configurações: categorias dos pregões e status ----------
 const CORES = ['#0284c7', '#d97706', '#16a34a', '#dc2626', '#7c3aed', '#db2777', '#0d9488', '#ca8a04', '#475569', '#ea580c']
 
-interface Item {
+export interface Item {
   id: string
   nome: string
   cor: string
-  exigeMotivo?: boolean
 }
 
-function ItemForm({
+export function ItemForm({
   initial,
   rotulo,
   placeholder,
-  comMotivo,
   onSubmit,
   onCancel,
 }: {
   initial?: Item
   rotulo: string
   placeholder: string
-  /** mostra a opção "exigir justificativa" (só para status) */
-  comMotivo?: boolean
   onSubmit: (v: CategoriaInput) => Promise<boolean>
   onCancel: () => void
 }) {
   const [nome, setNome] = useState(initial?.nome ?? '')
   const [cor, setCor] = useState(initial?.cor ?? CORES[0])
-  const [exigeMotivo, setExigeMotivo] = useState(initial?.exigeMotivo === true)
   const [busy, setBusy] = useState(false)
 
   const submit = async (e: FormEvent) => {
     e.preventDefault()
     setBusy(true)
-    const ok = await onSubmit({ nome: nome.trim(), cor, ...(comMotivo ? { exigeMotivo } : {}) })
+    const ok = await onSubmit({ nome: nome.trim(), cor })
     setBusy(false)
     if (ok) onCancel()
   }
@@ -228,23 +223,12 @@ function ItemForm({
           <input type="color" aria-label="Outra cor" value={cor} onChange={(e) => setCor(e.target.value)} className="h-7 w-9 cursor-pointer rounded border-0 bg-transparent p-0" />
         </div>
       </div>
-      {comMotivo && (
-        <label className="flex cursor-pointer items-start gap-space-sm rounded-lg bg-surface-container-low p-space-sm">
-          <input type="checkbox" checked={exigeMotivo} onChange={(e) => setExigeMotivo(e.target.checked)} className="mt-0.5 h-4 w-4 accent-primary" />
-          <span>
-            <span className="block font-label-md text-label-md font-bold text-primary">Exigir justificativa ao mudar para este status</span>
-            <span className="block text-body-sm text-on-surface-variant">
-              Ao escolher este status, o usuário precisa informar o motivo. Ele fica registrado no histórico do edital.
-            </span>
-          </span>
-        </label>
-      )}
       <Actions onClose={onCancel} busy={busy} submit={initial ? 'Salvar' : 'Criar'} />
     </form>
   )
 }
 
-interface Secao {
+export interface Secao {
   id: 'cat' | 'status'
   menu: string
   icon: string
@@ -263,10 +247,10 @@ interface Secao {
   onReorder: (ids: string[]) => Promise<boolean>
 }
 
-type CfgMode = { k: 'list' } | { k: 'new' } | { k: 'edit'; item: Item }
+export type CfgMode = { k: 'list' } | { k: 'new' } | { k: 'edit'; item: Item }
 
 /** Lista de itens que podem ser arrastados para mudar a ordem. */
-function ListaOrdenavel({ secao, onEdit }: { secao: Secao; onEdit: (i: Item) => void }) {
+export function ListaOrdenavel({ secao, onEdit }: { secao: Secao; onEdit: (i: Item) => void }) {
   const [arrastando, setArrastando] = useState<string | null>(null)
   const [sobre, setSobre] = useState<string | null>(null)
   // ordem local enquanto a gravação no servidor não volta
@@ -328,7 +312,6 @@ function ListaOrdenavel({ secao, onEdit }: { secao: Secao; onEdit: (i: Item) => 
               <span className="h-3 w-3 shrink-0 rounded-full" style={{ background: it.cor }} />
               <span className="truncate font-label-md text-label-md font-bold text-primary">{it.nome}</span>
               <span className="shrink-0 text-body-sm text-outline">{usos} edital(is)</span>
-              {it.exigeMotivo && <span className="shrink-0 rounded bg-error-container/40 px-1.5 text-[10px] font-bold text-error">EXIGE MOTIVO</span>}
               {fixo && <span className="shrink-0 rounded bg-surface-container px-1.5 text-[10px] font-bold text-on-surface">DO SISTEMA</span>}
             </div>
             <div className="flex shrink-0 items-center gap-1">
@@ -345,128 +328,5 @@ function ListaOrdenavel({ secao, onEdit }: { secao: Secao; onEdit: (i: Item) => 
         )
       })}
     </div>
-  )
-}
-
-export function ConfigModal({
-  categorias,
-  statuses,
-  editais,
-  onCreateCat,
-  onUpdateCat,
-  onDeleteCat,
-  onReorderCat,
-  onCreateStatus,
-  onUpdateStatus,
-  onDeleteStatus,
-  onReorderStatus,
-  onClose,
-}: {
-  categorias: CategoriaCfg[]
-  statuses: StatusCfg[]
-  editais: Edital[]
-  onCreateCat: (v: CategoriaInput) => Promise<boolean>
-  onUpdateCat: (id: string, v: CategoriaInput) => Promise<boolean>
-  onDeleteCat: (c: CategoriaCfg, usos: number) => void
-  onReorderCat: (ids: string[]) => Promise<boolean>
-  onCreateStatus: (v: CategoriaInput) => Promise<boolean>
-  onUpdateStatus: (id: string, v: CategoriaInput) => Promise<boolean>
-  onDeleteStatus: (s: StatusCfg, usos: number) => void
-  onReorderStatus: (ids: string[]) => Promise<boolean>
-  onClose: () => void
-}) {
-  const [aba, setAba] = useState<'cat' | 'status'>('cat')
-  const [mode, setMode] = useState<CfgMode>({ k: 'list' })
-  const back = () => setMode({ k: 'list' })
-
-  const secoes: Secao[] = [
-    {
-      id: 'cat',
-      menu: 'Categorias',
-      icon: 'category',
-      titulo: 'Categorias dos pregões',
-      descricao:
-        'As categorias aparecem no cadastro do edital, nos filtros, nas abas da tabela e nos gráficos. Uma categoria só pode ser excluída quando nenhum edital a usa.',
-      novo: 'Nova categoria',
-      rotulo: 'da categoria',
-      placeholder: 'Ex.: Material de limpeza',
-      itens: categorias,
-      usos: (id) => editais.filter((e) => e.cat === id).length,
-      onCreate: onCreateCat,
-      onUpdate: onUpdateCat,
-      onDelete: onDeleteCat,
-      onReorder: onReorderCat,
-    },
-    {
-      id: 'status',
-      menu: 'Status',
-      icon: 'flag',
-      titulo: 'Status dos editais',
-      descricao:
-        'Os status aparecem na tabela, nos filtros e no relatório. Um status só pode ser excluído quando nenhum edital o usa. Em cada status dá para marcar "exigir justificativa" (ex.: Descartado): ao mudar um edital para ele, o sistema pede o motivo. "Aguardando Abertura" (inicial de todo edital novo) e "Retificado / Aditivo" (aplicado ao registrar uma retificação) são usados pelo sistema: podem ser renomeados, não excluídos.',
-      novo: 'Novo status',
-      rotulo: 'do status',
-      placeholder: 'Ex.: Recurso em andamento',
-      itens: statuses,
-      usos: (id) => editais.filter((e) => e.status === id).length,
-      fixos: STATUS_FIXOS,
-      onCreate: onCreateStatus,
-      onUpdate: onUpdateStatus,
-      onDelete: onDeleteStatus,
-      onReorder: onReorderStatus,
-    },
-  ]
-  const secao = secoes.find((s) => s.id === aba)!
-
-  if (mode.k === 'new') {
-    return (
-      <Modal title={secao.novo} icon="add_circle" onClose={onClose}>
-        <ItemForm rotulo={secao.rotulo} placeholder={secao.placeholder} comMotivo={secao.id === 'status'} onSubmit={secao.onCreate} onCancel={back} />
-      </Modal>
-    )
-  }
-  if (mode.k === 'edit') {
-    const it = mode.item
-    return (
-      <Modal title={`Editar — ${it.nome}`} icon="edit" onClose={onClose}>
-        <ItemForm initial={it} rotulo={secao.rotulo} placeholder={secao.placeholder} comMotivo={secao.id === 'status'} onSubmit={(v) => secao.onUpdate(it.id, v)} onCancel={back} />
-      </Modal>
-    )
-  }
-
-  return (
-    <Modal title="Configurações" icon="settings" wide onClose={onClose}>
-      <div className="flex flex-col gap-space-md sm:flex-row">
-        <nav className="flex shrink-0 flex-row gap-1 sm:w-44 sm:flex-col">
-          {secoes.map((s) => (
-            <button
-              key={s.id}
-              type="button"
-              onClick={() => setAba(s.id)}
-              className={`flex items-center gap-space-sm rounded-lg px-space-md py-space-sm text-left text-body-md ${
-                aba === s.id ? 'bg-primary-container font-semibold text-on-primary-container' : 'text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface'
-              }`}
-            >
-              <span className="material-symbols-outlined text-[20px]">{s.icon}</span>
-              {s.menu}
-            </button>
-          ))}
-        </nav>
-        <section className="min-w-0 flex-1">
-          <h3 className="font-label-md text-label-md font-bold uppercase text-primary">{secao.titulo}</h3>
-          <p className="mb-space-md mt-1 text-body-sm text-on-surface-variant">{secao.descricao}</p>
-          <ListaOrdenavel key={secao.id} secao={secao} onEdit={(item) => setMode({ k: 'edit', item })} />
-          <p className="mt-1 text-[11px] text-outline">Arraste pelo ícone à esquerda para mudar a ordem; ela vale em todo o sistema.</p>
-          <div className="flex justify-between pt-space-md">
-            <button type="button" onClick={() => setMode({ k: 'new' })} className={`flex items-center gap-1 ${btnPrimary}`}>
-              <span className="material-symbols-outlined text-[18px]">add</span> {secao.novo}
-            </button>
-            <button type="button" onClick={onClose} className={btnGhost}>
-              Fechar
-            </button>
-          </div>
-        </section>
-      </div>
-    </Modal>
   )
 }

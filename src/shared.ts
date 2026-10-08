@@ -45,6 +45,8 @@ export interface Edital {
   objeto: string
   /** valor ganho na licitação (R$, com centavos). 0 = ainda não ganhou / não informado */
   valorGanho: number
+  /** valor total pelo qual a licitação foi homologada (R$). 0 = ainda não homologada */
+  valorHomologado: number
   /** portal onde a licitação acontece (a tela oferece uma lista, mas aceita qualquer nome) */
   portal: string
   /** AAAA-MM-DD ou '' (a definir) */
@@ -81,8 +83,35 @@ export interface StatusCfg {
   id: StatusKey
   nome: string
   cor: string
-  /** quando true, mudar um edital para este status exige o motivo (fica no histórico) */
-  exigeMotivo?: boolean
+  /** posição do status no mapa do fluxo (Configurações → Fluxo dos status) */
+  x?: number
+  y?: number
+}
+
+/** O que o usuário precisa informar ao usar uma ligação do fluxo. */
+export type ExigeTransicao = 'nada' | 'motivo' | 'valorGanho' | 'valorHomologado'
+
+export const EXIGE_LABEL: Record<ExigeTransicao, string> = {
+  nada: 'Nada (um clique)',
+  motivo: 'Motivo (texto)',
+  valorGanho: 'Valor total ganho',
+  valorHomologado: 'Valor total homologado',
+}
+
+/**
+ * Uma ligação do fluxo: de um status só se pode ir para os status que têm ligação saindo dele.
+ * Cada par (de, para) existe no máximo uma vez. Sem nenhuma ligação cadastrada, qualquer mudança é livre.
+ */
+export interface Transicao {
+  de: StatusKey
+  para: StatusKey
+  /** texto do botão que o usuário clica */
+  rotulo: string
+  /** true = aparece no botão "Negativo"; false = no botão "Avançar" */
+  negativo: boolean
+  exige: ExigeTransicao
+  /** resultado que a ligação marca no edital ('' = não mexe) */
+  resultado: Resultado
 }
 
 export interface CategoriaCfg {
@@ -160,6 +189,8 @@ export interface AppState {
   portais: Portal[]
   categorias: CategoriaCfg[]
   statuses: StatusCfg[]
+  /** ligações do fluxo de status (vazio = mudança livre entre quaisquer status) */
+  transicoes: Transicao[]
 }
 
 export interface Unchanged {

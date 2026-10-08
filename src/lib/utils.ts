@@ -15,6 +15,9 @@ export const addDaysIso = (n: number) => {
 /** AAAA-MM-DD -> dd/MM/aaaa */
 export const fmtDate = (s: string) => (s ? s.split('-').reverse().join('/') : 'A Definir')
 
+/** Chave para ordenar por data e horário juntos (sem data vai para o fim; sem horário, depois dos que têm). */
+export const chaveDataHora = (e: Pick<Edital, 'data' | 'hora' | 'id'>) => `${e.data || '9999-12-31'} ${e.hora || '99:99'} ${String(e.id).padStart(8, '0')}`
+
 /** Instante (ms) -> dd/MM/aaaa HH:mm (24 horas) */
 export function fmtTs(ts: number): string {
   if (!ts) return ''
@@ -74,9 +77,9 @@ export function inPeriod(e: Edital, p: Periodo): boolean {
 /** Baixa um CSV (separador ;, UTF-8 com BOM) que abre direto no Excel. */
 export function exportCsv(list: Edital[], categorias: CategoriaCfg[], statuses: StatusCfg[]): void {
   const q = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`
-  const head = ['Categoria', 'Edital', 'UASG / ID', 'Portal', 'Órgão', 'Cidade', 'UF', 'Objeto', 'Modalidade', 'Valor ganho', 'Data limite', 'Horário', 'Status', 'Resultado', 'Retificações']
+  const head = ['Categoria', 'Edital', 'UASG / ID', 'Portal', 'Órgão', 'Cidade', 'UF', 'Objeto', 'Modalidade', 'Valor ganho', 'Valor homologado', 'Data limite', 'Horário', 'Status', 'Resultado', 'Retificações']
   const rows = list.map((x) =>
-    [catInfo(categorias, x.cat).nome, x.num, x.uasg, x.portal, x.orgao, x.cidade, x.uf, x.objeto, MODALIDADES[x.mod], x.valorGanho.toFixed(2).replace('.', ','), fmtDate(x.data), x.hora, statusInfo(statuses, x.status).nome, x.resultado ? RESULTADOS[x.resultado] : 'Em andamento', x.retifs.length]
+    [catInfo(categorias, x.cat).nome, x.num, x.uasg, x.portal, x.orgao, x.cidade, x.uf, x.objeto, MODALIDADES[x.mod], x.valorGanho.toFixed(2).replace('.', ','), x.valorHomologado.toFixed(2).replace('.', ','), fmtDate(x.data), x.hora, statusInfo(statuses, x.status).nome, x.resultado ? RESULTADOS[x.resultado] : 'Em andamento', x.retifs.length]
       .map(q)
       .join(';'),
   )

@@ -1,4 +1,5 @@
-import { RESULTADOS, type CategoriaCfg, type Edital, type Resultado, type StatusCfg, type StatusKey } from '../shared'
+import { useState } from 'react'
+import { RESULTADOS, type CategoriaCfg, type Edital, type StatusCfg, type Transicao } from '../shared'
 import { brlFull, catInfo, fmtDate, statusInfo, todayIso } from '../lib/utils'
 
 /** 'ALL', 'RETIF' ou o id de uma categoria */
@@ -10,6 +11,7 @@ interface Props {
   total: number
   categorias: CategoriaCfg[]
   statuses: StatusCfg[]
+  transicoes: Transicao[]
   counts: { all: number; retif: number; porCat: Record<string, number> }
   tab: Tab
   onTab: (t: Tab) => void
@@ -19,8 +21,7 @@ interface Props {
   onSort: () => void
   selected: Set<number>
   onToggle: (ids: number[], checked: boolean) => void
-  onStatus: (id: number, s: StatusKey) => void
-  onResultado: (id: number, r: Resultado) => void
+  onTransicao: (id: number, t: Transicao) => void
   onRetif: (id: number) => void
   onHist: (id: number) => void
   onEdit: (id: number) => void
@@ -39,12 +40,84 @@ function CatBadge({ cat }: { cat: CategoriaCfg }) {
   )
 }
 
-function DateCell({ d }: { d: string }) {
+/** Horário e data juntos: "07:00 15/10/2026". Hoje em vermelho, vencidos riscados. */
+function DateCell({ d, hora }: { d: string; hora: string }) {
   const t = todayIso()
   if (!d) return <span className="font-data-mono text-data-mono text-outline">A Definir</span>
-  if (d === t) return <span className="font-data-mono text-data-mono font-bold text-error">HOJE ({fmtDate(d)})</span>
-  if (d < t) return <span className="font-data-mono text-data-mono text-outline line-through">{fmtDate(d)}</span>
-  return <span className="font-data-mono text-data-mono font-semibold text-primary">{fmtDate(d)}</span>
+  const h = <span className="mr-1.5 rounded bg-surface-container px-1.5 py-0.5 font-data-mono text-data-mono text-on-surface">{hora || '--:--'}</span>
+  if (d === t) return <span className="font-data-mono text-data-mono font-bold text-error">{h}HOJE ({fmtDate(d)})</span>
+  if (d < t) return <span className="font-data-mono text-data-mono text-outline line-through">{h}{fmtDate(d)}</span>
+  return <span className="font-data-mono text-data-mono font-semibold text-primary">{h}{fmtDate(d)}</span>
+}
+
+/** Botão do fluxo: age direto quando só há uma opção; com várias, abre uma lista. */
+function BotaoFluxo({ itens, icone, rotuloMenu, negativo, onPick }: { itens: Transicao[]; icone: string; rotuloMenu: string; negativo?: boolean; onPick: (t: Transicao) => void }) {
+  const [pos, setPos] = useState<{ x: number; y: number } | null>(null)
+  if (itens.length === 0) return null
+  const cor = negativo ? 'bg-error-container/50 text-error hover:bg-error-container' : 'bg-primary text-on-primary hover:bg-primary-hover'
+  const cls = `flex items-center gap-1 rounded-lg px-2.5 py-1 font-label-sm text-label-sm font-bold ${cor}`
+  if (itens.length === 1) {
+    return (
+      <button type="button" className={cls} onClick={() => onPick(itens[0])} title={itens[0].rotulo}>
+        <span className="material-symbols-outlined text-[14px]">{icone}</span> {itens[0].rotulo}
+      </button>
+    )
+  }
+  return (
+    <>
+      <button
+        type="button"
+        className={cls}
+        onClick={(e) => {
+          const r = e.currentTarget.getBoundingClientRect()
+          setPos({ x: r.left, y: r.bottom + 4 })
+        }}
+      >
+        <span className="material-symbols-outlined text-[14px]">{icone}</span> {rotuloMenu}
+        <span className="material-symbols-outlined text-[14px]">expand_more</span>
+      </button>
+      {pos && (
+        <>
+          <div className="fixed inset-0 z-[90]" onClick={() => setPos(null)} />
+          <div className="fixed z-[91] min-w-[170px] overflow-hidden rounded-lg bg-surface-container-lowest py-1 text-left shadow-xl ring-1 ring-black/10" style={{ left: pos.x, top: pos.y }}>
+            {itens.map((t) => (
+              <button
+                key={t.para}
+                type="button"
+                className="block w-full px-3 py-1.5 text-left font-label-md text-label-md hover:bg-surface-container-low"
+                onClick={() => {
+                  setPos(null)
+                  onPick(t)
+                }}
+              >
+                {t.rotulo}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+    </>
+  )
+}
+
+/** Status atual + botões Avançar / Negativo segundo o fluxo (sem fluxo cadastrado, qualquer status é permitido). */
+function StatusCell({ x, statuses, transicoes, onPick }: { x: Edital; statuses: StatusCfg[]; transicoes: Transicao[]; onPick: (t: Transicao) => void }) {
+  const st = statusInfo(statuses, x.status)
+  const saidas: Transicao[] =
+    transicoes.length > 0
+      ? transicoes.filter((t) => t.de === x.status)
+      : statuses.filter((s) => s.id !== x.status).map((s) => ({ de: x.status, para: s.id, rotulo: s.nome, negativo: false, exige: 'nada' as const, resultado: '' as const }))
+  return (
+    <div className="flex flex-col items-center gap-1.5">
+      <span className="rounded-full px-2.5 py-1 font-label-sm text-label-sm font-semibold" style={{ background: `${st.cor}22`, color: st.cor }}>
+        {st.nome}
+      </span>
+      <div className="flex items-center gap-1">
+        <BotaoFluxo itens={saidas.filter((t) => !t.negativo)} icone="arrow_forward" rotuloMenu="Avançar" onPick={onPick} />
+        <BotaoFluxo itens={saidas.filter((t) => t.negativo)} icone="block" rotuloMenu="Negativo" negativo onPick={onPick} />
+      </div>
+    </div>
+  )
 }
 
 export default function EditalTable(p: Props) {
@@ -98,11 +171,11 @@ export default function EditalTable(p: Props) {
               <th className="px-space-md py-2">Órgão Comprador</th>
               <th className="min-w-[220px] px-space-md py-2">Objeto Registrado</th>
               <th className="px-space-md py-2">Retificações</th>
-              <th className="cursor-pointer px-space-md py-2" onClick={p.onSort}>
-                Data Limite {p.sortAsc ? '▲' : '▼'}
+              <th className="cursor-pointer whitespace-nowrap px-space-md py-2" onClick={p.onSort} title="Ordena por data e horário">
+                Data / Horário {p.sortAsc ? '▲' : '▼'}
               </th>
-              <th className="px-space-md py-2">Horário</th>
               <th className="px-space-md py-2 text-right">Valor Ganho</th>
+              <th className="px-space-md py-2 text-right">Valor Homologado</th>
               <th className="px-space-md py-2 text-center">Status</th>
               <th className="px-space-md py-2 text-center">Resultado</th>
               <th className="px-space-md py-2 text-center">Ações</th>
@@ -173,10 +246,7 @@ export default function EditalTable(p: Props) {
                       <span className="font-label-sm text-label-sm italic text-outline">Sem alterações</span>
                     )}
                   </td>
-                  <td className="whitespace-nowrap px-space-md py-3"><DateCell d={x.data} /></td>
-                  <td className="whitespace-nowrap px-space-md py-3">
-                    <span className="rounded bg-surface-container px-2 py-0.5 font-data-mono text-data-mono">{x.hora ? `${x.hora}h` : '--:--'}</span>
-                  </td>
+                  <td className="whitespace-nowrap px-space-md py-3"><DateCell d={x.data} hora={x.hora} /></td>
                   <td className="whitespace-nowrap px-space-md py-3 text-right">
                     {x.valorGanho > 0 ? (
                       <span className="font-data-mono text-data-mono font-semibold text-secondary">{brlFull(x.valorGanho)}</span>
@@ -184,24 +254,19 @@ export default function EditalTable(p: Props) {
                       <span className="font-data-mono text-data-mono text-outline">—</span>
                     )}
                   </td>
-                  <td className="whitespace-nowrap px-space-md py-3 text-center">
-                    <select
-                      value={x.status}
-                      onChange={(e) => p.onStatus(x.id, e.target.value as StatusKey)}
-                      className="rounded-full border-none px-2 py-1 font-label-sm text-label-sm font-semibold focus:outline-none"
-                      style={{ background: `${statusInfo(p.statuses, x.status).cor}22`, color: statusInfo(p.statuses, x.status).cor }}
-                    >
-                      {p.statuses.map((s) => (
-                        <option key={s.id} value={s.id}>{s.nome}</option>
-                      ))}
-                    </select>
+                  <td className="whitespace-nowrap px-space-md py-3 text-right">
+                    {x.valorHomologado > 0 ? (
+                      <span className="font-data-mono text-data-mono font-semibold text-secondary">{brlFull(x.valorHomologado)}</span>
+                    ) : (
+                      <span className="font-data-mono text-data-mono text-outline">—</span>
+                    )}
                   </td>
                   <td className="whitespace-nowrap px-space-md py-3 text-center">
-                    <select
-                      value={x.resultado}
-                      onChange={(e) => p.onResultado(x.id, e.target.value as Resultado)}
-                      title="Resultado da licitação"
-                      className={`rounded-full border-none px-2 py-1 font-label-sm text-label-sm font-bold focus:outline-none ${
+                    <StatusCell x={x} statuses={p.statuses} transicoes={p.transicoes} onPick={(t) => p.onTransicao(x.id, t)} />
+                  </td>
+                  <td className="whitespace-nowrap px-space-md py-3 text-center">
+                    <span
+                      className={`rounded-full px-2 py-1 font-label-sm text-label-sm font-bold ${
                         x.resultado === 'GANHAMOS'
                           ? 'bg-green-600 text-white'
                           : x.resultado === 'PERDEMOS'
@@ -209,10 +274,8 @@ export default function EditalTable(p: Props) {
                             : 'bg-surface-container text-on-surface-variant'
                       }`}
                     >
-                      <option value="">Em andamento</option>
-                      <option value="GANHAMOS">{RESULTADOS.GANHAMOS}</option>
-                      <option value="PERDEMOS">{RESULTADOS.PERDEMOS}</option>
-                    </select>
+                      {x.resultado ? RESULTADOS[x.resultado] : 'Em andamento'}
+                    </span>
                   </td>
                   <td className="whitespace-nowrap px-space-md py-3 text-center">
                     <div className="flex items-center justify-center gap-1">
