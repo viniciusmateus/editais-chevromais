@@ -1,4 +1,4 @@
-import { MODALIDADES, REGIOES, REGRAS_PADRAO, RESULTADOS, type CategoriaCfg, type StatusCfg, type Edital, type Portal, type RegrasCampos } from '../shared'
+import { MODALIDADES, REGIOES, REGRAS_PADRAO, RESULTADOS, type CategoriaCfg, type StatusCfg, type Edital, type Portal, type RegrasCampos, type Transicao } from '../shared'
 
 export type Periodo = 'all' | 'today' | '7days' | 'month'
 
@@ -14,6 +14,39 @@ export const addDaysIso = (n: number) => {
 
 /** AAAA-MM-DD -> dd/MM/aaaa */
 export const fmtDate = (s: string) => (s ? s.split('-').reverse().join('/') : 'A Definir')
+
+/** Visão da lista: situação do edital ('s:ID' = um status específico). */
+export type Visao = 'aberto' | 'hoje' | 'atrasados' | 'todos' | `s:${string}`
+
+/** Edital que ainda precisa de andamento: sem resultado e com algum passo a dar no fluxo (sem fluxo cadastrado, basta não ter resultado). */
+export const emAberto = (e: Edital, transicoes: Transicao[]) => e.resultado === '' && (transicoes.length === 0 || transicoes.some((t) => t.de === e.status))
+
+export function naVisao(e: Edital, v: Visao, transicoes: Transicao[]): boolean {
+  const hoje = todayIso()
+  if (v === 'todos') return true
+  if (v === 'aberto') return emAberto(e, transicoes)
+  if (v === 'hoje') return e.data === hoje
+  if (v === 'atrasados') return !!e.data && e.data < hoje && emAberto(e, transicoes)
+  return e.status === v.slice(2)
+}
+
+/** Dias de hoje até a data (negativo = já passou). */
+export const diasAte = (iso: string) => Math.round((Date.parse(iso + 'T00:00:00') - Date.parse(todayIso() + 'T00:00:00')) / 86_400_000)
+
+/**
+ * Ordem da lista: o que vence hoje ou depois vem primeiro (do mais próximo ao mais distante);
+ * depois os já vencidos (do mais recente ao mais antigo); por fim os sem data. Assim o histórico antigo nunca fica no topo.
+ */
+export function compararDataHora(a: Edital, b: Edital): number {
+  const t = todayIso()
+  const g = (e: Edital) => (!e.data ? 2 : e.data >= t ? 0 : 1)
+  const ga = g(a)
+  const gb = g(b)
+  if (ga !== gb) return ga - gb
+  const ka = chaveDataHora(a)
+  const kb = chaveDataHora(b)
+  return ga === 1 ? kb.localeCompare(ka) : ka.localeCompare(kb)
+}
 
 /** Chave para ordenar por data e horário juntos (sem data vai para o fim; sem horário, depois dos que têm). */
 export const chaveDataHora = (e: Pick<Edital, 'data' | 'hora' | 'id'>) => `${e.data || '9999-12-31'} ${e.hora || '99:99'} ${String(e.id).padStart(8, '0')}`

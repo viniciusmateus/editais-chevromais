@@ -70,6 +70,36 @@ export interface Edital {
 export type EditalInput = Omit<Edital, 'id' | 'retifs' | 'log' | 'v' | 'criadoPor' | 'atualizadoPor' | 'atualizadoEm'>
 
 /** Dados de um usuário que podem ir para o navegador (nunca inclui senha). */
+/** Campos "dados base" do edital que um perfil pode ou não editar. */
+export const CAMPOS_BASE = [
+  { key: 'portal', label: 'Portal' },
+  { key: 'cat', label: 'Categoria' },
+  { key: 'mod', label: 'Modalidade' },
+  { key: 'num', label: 'Nº do edital' },
+  { key: 'uasg', label: 'UASG / Nº de identificação' },
+  { key: 'orgao', label: 'Órgão comprador' },
+  { key: 'cidade', label: 'Cidade' },
+  { key: 'uf', label: 'UF' },
+  { key: 'data', label: 'Data limite' },
+  { key: 'hora', label: 'Horário limite' },
+] as const satisfies ReadonlyArray<{ key: string; label: string }>
+
+export type CampoBase = (typeof CAMPOS_BASE)[number]['key']
+
+/** O que um usuário pode fazer com os editais (administradores podem tudo). */
+export interface Permissoes {
+  /** pode excluir editais */
+  excluir: boolean
+  /** dados base que pode alterar nos editais já cadastrados */
+  campos: CampoBase[]
+}
+
+/** Perfil de permissões, atribuído aos usuários em Configurações → Perfis. */
+export interface PerfilCfg extends Permissoes {
+  id: number
+  nome: string
+}
+
 export interface PublicUser {
   id: number
   usuario: string
@@ -78,6 +108,10 @@ export interface PublicUser {
   papel: Papel
   /** ids dos portais que o usuário enxerga; null = todos. Administradores sempre enxergam todos. */
   portais: number[] | null
+  /** id do perfil de permissões (administradores não precisam de perfil) */
+  perfil: number | null
+  /** permissões efetivas, já calculadas pelo servidor */
+  perms: Permissoes
 }
 
 export interface StatusCfg {
@@ -154,7 +188,6 @@ export const CAMPOS_PORTAL = [
   { key: 'data', label: 'Data limite' },
   { key: 'hora', label: 'Horário' },
   { key: 'valorGanho', label: 'Valor ganho' },
-  { key: 'resultado', label: 'Resultado da licitação', semObrigatorio: true },
 ] as const satisfies ReadonlyArray<{ key: string; label: string; semObrigatorio?: boolean }>
 
 export type CampoKey = (typeof CAMPOS_PORTAL)[number]['key']
@@ -172,7 +205,6 @@ export const REGRAS_PADRAO: RegrasCampos = {
   data: 'opcional',
   hora: 'opcional',
   valorGanho: 'opcional',
-  resultado: 'opcional',
 }
 
 export interface Portal {
@@ -211,6 +243,8 @@ export interface AppState {
   statuses: StatusCfg[]
   impugnacoes: ImpugnacaoCfg[]
   impugStatuses: ImpugStatusCfg[]
+  /** perfis de permissão (só vem preenchido para administradores) */
+  perfis: PerfilCfg[]
   /** ligações do fluxo de status (vazio = mudança livre entre quaisquer status) */
   transicoes: Transicao[]
 }

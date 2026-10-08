@@ -1,14 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { type AppState, type PublicUser, type Transicao } from './shared'
 import { api, ApiError } from './lib/api'
-import { chaveDataHora, exportCsv, inPeriod, todayIso, type Periodo } from './lib/utils'
+import { compararDataHora, exportCsv, inPeriod, naVisao, emAberto, todayIso, type Periodo, type Visao } from './lib/utils'
 import Sidebar, { type Nav } from './components/Sidebar'
 import Header from './components/Header'
 import FilterBar from './components/FilterBar'
+import SituacaoBar from './components/SituacaoBar'
 import Kpis from './components/Kpis'
 import RegionPanel from './components/RegionPanel'
 import RetifPanel from './components/RetifPanel'
-import EditalTable, { type Tab } from './components/EditalTable'
+import EditalTable, { PAGE_SIZES, type Tab } from './components/EditalTable'
 import CalendarView from './components/CalendarView'
 import { EditalModal, HistModal, ProfileModal, ReportModal, RetifModal, TransicaoModal, UsersModal } from './components/Modals'
 import { PortaisModal } from './components/Admin'
@@ -18,7 +19,6 @@ type ModalState =
   | { type: 'edital'; id?: number; v?: number }
   | { type: 'retif'; id?: number }
   | { type: 'hist'; id: number }
-  | { type: 'transicao'; id: number; t: Transicao }
   | { type: 'report' }
   | { type: 'profile' }
   | { type: 'users' }
@@ -38,7 +38,7 @@ export default function Dashboard({ onLogout }: { onLogout: () => void }) {
   const [q, setQ] = useState('')
   const [fCat, setFCat] = useState('ALL')
   const [fPer, setFPer] = useState<Periodo>('all')
-  const [fStatus, setFStatus] = useState('ALL')
+  const [visao, setVisao] = useState<Visao>('aberto')
   const [sortAsc, setSortAsc] = useState(true)
   const [page, setPage] = useState(1)
   const [selected, setSelected] = useState<Set<number>>(new Set())
@@ -56,6 +56,27 @@ export default function Dashboard({ onLogout }: { onLogout: () => void }) {
 
   const notify = useCallback((msg: string, error = false) => setToast({ msg, error }), [])
   const closeModal = useCallback(() => setModal(null), [])
+  // pergunta do fluxo (motivo / valor / impugnações): fica por cima da edição, que continua aberta por baixo
+  const [trans, setTrans] = useState<{ id: number; t: Transicao } | null>(null)
+  const closeTrans = useCallback(() => setTrans(null), [])
+  const [pageSize, setPageSizeState] = useState(() => {
+    try {
+      const n = Number(localStorage.getItem('editais.pageSize'))
+      return PAGE_SIZES.includes(n) ? n : PAGE_SIZES[0]
+    } catch {
+      return PAGE_SIZES[0]
+    }
+  })
+  const setPageSize = (n: number) => {
+    setPageSizeState(n)
+    setPage(1)
+    try {
+      localStorage.setItem('editais.pageSize', String(n))
+    } catch {
+      /* sem armazenamento: vale só nesta sessão */
+    }
+  }
+  const ultimoRef = useRef<AppState | null>(null)
 
   const load = useCallback(() => {
     setLoadError(null)
@@ -106,7 +127,7 @@ export default function Dashboard({ onLogout }: { onLogout: () => void }) {
     return () => clearTimeout(t)
   }, [toast])
 
-  useEffect(() => setPage(1), [tab, fCat, fPer, fStatus, q])
+  useEffect(() => setPage(1), [tab, fCat, fPer, visao, q])
 
   // categoria excluída (por este ou outro usuário) enquanto estava selecionada num filtro/aba: volta para "todas"
   useEffect(() => {
@@ -114,22 +135,29 @@ export default function Dashboard({ onLogout }: { onLogout: () => void }) {
     const existe = (id: string) => state.categorias.some((c) => c.id === id)
     if (tab !== 'ALL' && tab !== 'RETIF' && !existe(tab)) setTab('ALL')
     if (fCat !== 'ALL' && !existe(fCat)) setFCat('ALL')
-  }, [state, tab, fCat])
+    if (visao.startsWith('s:') && !state.statuses.some((s) => s.id === visao.slice(2))) setVisao('aberto')
+  }, [state, tab, fCat, visao])
 
   // se outra pessoa excluir o edital que está aberto num modal, fecha o modal
   useEffect(() => {
     if (!state || !modal) return
-    const id = modal.type === 'edital' || modal.type === 'retif' || modal.type === 'hist' || modal.type === 'transicao' ? modal.id : undefined
+    const id = modal.type === 'edital' || modal.type === 'retif' || modal.type === 'hist' ? modal.id : undefined
     if (id !== undefined && !state.editais.some((x) => x.id === id)) {
       setModal(null)
       notify('Este edital foi excluído por outro usuário.', true)
     }
   }, [state, modal, notify])
 
+  useEffect(() => {
+    if (state && trans && !state.editais.some((x) => x.id === trans.id)) setTrans(null)
+  }, [state, trans])
+
   /** Executa uma chamada à API, mostra o estado gravado no servidor e avisa o resultado. */
   const act = async (fn: () => Promise<AppState>, ok?: string): Promise<boolean> => {
     try {
-      setState(await fn())
+      const next = await fn()
+      ultimoRef.current = next
+      setState(next)
       if (ok) notify(ok)
       return true
     } catch (e) {
@@ -160,23 +188,35 @@ export default function Dashboard({ onLogout }: { onLogout: () => void }) {
 
   const editais = useMemo(() => state?.editais ?? [], [state])
 
-  const filtered = useMemo(() => {
+  // tudo que o usuário filtrou (aba, categoria, período, busca) menos a situação: serve de base para contar os cartões
+  const base = useMemo(() => {
     const needle = q.toLowerCase().trim()
-    return editais
-      .filter((x) => {
-        if (tab === 'RETIF' ? x.retifs.length === 0 : tab !== 'ALL' && x.cat !== tab) return false
-        if (fCat !== 'ALL' && x.cat !== fCat) return false
-        if (fStatus !== 'ALL' && x.status !== fStatus) return false
-        if (!inPeriod(x, fPer)) return false
-        if (needle && ![x.num, x.orgao, x.uasg, x.cidade, x.uf, x.portal].some((v) => v.toLowerCase().includes(needle))) return false
-        return true
-      })
-      .sort((a, b) => {
-        const A = chaveDataHora(a)
-        const B = chaveDataHora(b)
-        return sortAsc ? A.localeCompare(B) : B.localeCompare(A)
-      })
-  }, [editais, tab, fCat, fPer, fStatus, q, sortAsc])
+    return editais.filter((x) => {
+      if (tab === 'RETIF' ? x.retifs.length === 0 : tab !== 'ALL' && x.cat !== tab) return false
+      if (fCat !== 'ALL' && x.cat !== fCat) return false
+      if (!inPeriod(x, fPer)) return false
+      if (needle && ![x.num, x.orgao, x.uasg, x.cidade, x.uf, x.portal].some((v) => v.toLowerCase().includes(needle))) return false
+      return true
+    })
+  }, [editais, tab, fCat, fPer, q])
+
+  const transicoes = state?.transicoes
+  const filtered = useMemo(() => {
+    const t = transicoes ?? []
+    return base.filter((x) => naVisao(x, visao, t)).sort((a, b) => (sortAsc ? compararDataHora(a, b) : compararDataHora(b, a)))
+  }, [base, visao, transicoes, sortAsc])
+
+  // quantidades dos cartões de situação
+  const nSituacao = useMemo(() => {
+    const t = transicoes ?? []
+    return {
+      aberto: base.filter((x) => emAberto(x, t)).length,
+      hoje: base.filter((x) => naVisao(x, 'hoje', t)).length,
+      atrasados: base.filter((x) => naVisao(x, 'atrasados', t)).length,
+      todos: base.length,
+    }
+  }, [base, transicoes])
+  const porStatus = useMemo(() => base.reduce<Record<string, number>>((acc, x) => ((acc[x.status] = (acc[x.status] ?? 0) + 1), acc), {}), [base])
 
   const counts = useMemo(
     () => ({
@@ -201,12 +241,19 @@ export default function Dashboard({ onLogout }: { onLogout: () => void }) {
     scrollToTable()
   }
 
-  /** Botão do fluxo: sem exigência grava direto; com motivo/valor, abre o modal antes de gravar. */
+  /** Depois de uma mudança de status feita com a edição aberta: a edição passa a usar a versão nova (senão o Salvar daria conflito). */
+  const sincronizarV = (id: number) => {
+    const e = ultimoRef.current?.editais.find((x) => x.id === id)
+    if (e) setModal((m) => (m?.type === 'edital' && m.id === id ? { ...m, v: e.v } : m))
+  }
+
+  /** Botão do fluxo (tabela ou edição): sem exigência grava direto; com motivo/valor/impugnações, abre a pergunta antes de gravar. */
   const usarTransicao = (id: number, t: Transicao) => {
     // "resultado das impugnações" só pergunta quando o edital tem impugnações
     const semPergunta = t.exige === 'nada' || (t.exige === 'impugnacoes' && !editais.find((x) => x.id === id)?.impugnacoes.length)
-    if (semPergunta) void act(() => api.updateEdital(id, { status: t.para }), `Status: ${state?.statuses.find((s) => s.id === t.para)?.nome ?? t.rotulo}.`)
-    else setModal({ type: 'transicao', id, t })
+    if (semPergunta) {
+      void act(() => api.updateEdital(id, { status: t.para }), `Status: ${state?.statuses.find((s) => s.id === t.para)?.nome ?? t.rotulo}.`).then((ok) => ok && sincronizarV(id))
+    } else setTrans({ id, t })
   }
 
   const onTab = (t: Tab) => {
@@ -218,7 +265,7 @@ export default function Dashboard({ onLogout }: { onLogout: () => void }) {
     setQ('')
     setFCat('ALL')
     setFPer('all')
-    setFStatus('ALL')
+    setVisao('aberto')
     setTab('ALL')
     setNav('dashboard')
   }
@@ -266,8 +313,8 @@ export default function Dashboard({ onLogout }: { onLogout: () => void }) {
       <div className="pl-64">
         <Header
           me={me}
-          q={q}
-          onQ={setQ}
+          editais={editais}
+          onOpen={(id) => setModal({ type: 'edital', id, v: editais.find((x) => x.id === id)?.v })}
           hasDue={editais.some((x) => x.data === todayIso())}
           onBell={onBell}
           onProfile={() => setModal({ type: 'profile' })}
@@ -289,6 +336,16 @@ export default function Dashboard({ onLogout }: { onLogout: () => void }) {
                 impugnacoes={state.impugnacoes}
                 impugStatuses={state.impugStatuses}
                 transicoes={state.transicoes}
+                perfis={state.perfis}
+                users={state.users}
+                acoesPerfil={{
+                  onCreate: (v) => act(() => api.createPerfil(v), 'Perfil criado.'),
+                  onUpdate: (id, v) => act(() => api.updatePerfil(id, v), 'Perfil atualizado.'),
+                  onDelete: (p, usos) => {
+                    if (usos) return notify(`O perfil ${p.nome} é usado por ${usos} usuário(s). Mude o perfil deles antes de excluí-lo.`, true)
+                    if (confirm(`Excluir o perfil ${p.nome}?`)) void act(() => api.deletePerfil(p.id), 'Perfil excluído.')
+                  },
+                }}
                 editais={editais}
                 onSaveFluxo={(v) => act(() => api.salvarFluxo(v), 'Fluxo salvo.')}
                 acoesCat={{
@@ -380,15 +437,10 @@ export default function Dashboard({ onLogout }: { onLogout: () => void }) {
             <FilterBar
               editais={editais}
               categorias={state.categorias}
-              statuses={state.statuses}
-              q={q}
-              onQ={setQ}
               cat={fCat}
               onCat={setFCat}
               per={fPer}
               onPer={setFPer}
-              status={fStatus}
-              onStatus={setFStatus}
               onClear={clearFilters}
             />
 
@@ -404,7 +456,8 @@ export default function Dashboard({ onLogout }: { onLogout: () => void }) {
               />
             </div>
 
-            <div ref={tableRef}>
+            <div ref={tableRef} className="flex flex-col gap-space-sm">
+              <SituacaoBar visao={visao} onVisao={setVisao} n={nSituacao} statuses={state.statuses} porStatus={porStatus} />
               <EditalTable
                 list={filtered}
                 total={editais.length}
@@ -415,6 +468,10 @@ export default function Dashboard({ onLogout }: { onLogout: () => void }) {
                 onTab={onTab}
                 page={page}
                 onPage={setPage}
+                pageSize={pageSize}
+                onPageSize={setPageSize}
+                q={q}
+                onQ={setQ}
                 sortAsc={sortAsc}
                 onSort={() => setSortAsc((v) => !v)}
                 selected={selected}
@@ -455,6 +512,17 @@ export default function Dashboard({ onLogout }: { onLogout: () => void }) {
           statuses={state.statuses}
           impugnacoes={state.impugnacoes}
           impugStatuses={state.impugStatuses}
+          perms={me.perms}
+          transicoes={state.transicoes}
+          onTransicao={(t) => modalEdital && usarTransicao(modalEdital.id, t)}
+          onDelete={
+            modalEdital
+              ? () => {
+                  if (!confirm(`Excluir o edital ${modalEdital.num || `#${modalEdital.id}`}? Esta ação não pode ser desfeita.`)) return
+                  void act(() => api.deleteEditais([modalEdital.id]), 'Edital excluído.').then((ok) => ok && closeModal())
+                }
+              : undefined
+          }
           onClose={closeModal}
           onSave={(v) =>
             act(
@@ -473,15 +541,20 @@ export default function Dashboard({ onLogout }: { onLogout: () => void }) {
         />
       )}
       {modal?.type === 'hist' && modalEdital && <HistModal edital={modalEdital} onClose={closeModal} />}
-      {modal?.type === 'transicao' && modalEdital && (
+      {trans && editais.some((x) => x.id === trans.id) && (
         <TransicaoModal
-          edital={modalEdital}
-          transicao={modal.t}
+          edital={editais.find((x) => x.id === trans.id)!}
+          transicao={trans.t}
           statuses={state.statuses}
           impugnacoes={state.impugnacoes}
           impugStatuses={state.impugStatuses}
-          onClose={closeModal}
-          onSave={(v) => act(() => api.updateEdital(modal.id, { status: modal.t.para, ...v }), 'Status atualizado.')}
+          onClose={closeTrans}
+          onSave={(v) =>
+            act(() => api.updateEdital(trans.id, { status: trans.t.para, ...v }), 'Status atualizado.').then((ok) => {
+              if (ok) sincronizarV(trans.id)
+              return ok
+            })
+          }
         />
       )}
       {modal?.type === 'report' && (
@@ -525,6 +598,7 @@ export default function Dashboard({ onLogout }: { onLogout: () => void }) {
           me={me}
           users={state.users}
           portais={state.portais}
+          perfis={state.perfis}
           onClose={closeModal}
           onCreate={(v) => act(() => api.createUser(v), 'Usuário criado.')}
           onUpdate={(id, v) => act(() => api.updateUser(id, v), 'Usuário atualizado.')}

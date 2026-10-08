@@ -144,6 +144,9 @@ route('POST', /^\/api\/status\/ordem$/, true, async (c) => ({ body: await db.reo
 route('PUT', /^\/api\/status\/([\w-]+)$/, true, async (c, m) => ({ body: await db.updateStatus(c.user!, m[1], c.body) }))
 route('DELETE', /^\/api\/status\/([\w-]+)$/, true, async (c, m) => ({ body: await db.deleteStatus(c.user!, m[1]) }))
 
+route('POST', /^\/api\/perfis$/, true, async (c) => ({ status: 201, body: await db.createPerfil(c.user!, c.body) }))
+route('PUT', /^\/api\/perfis\/(\d+)$/, true, async (c, m) => ({ body: await db.updatePerfil(c.user!, Number(m[1]), c.body) }))
+route('DELETE', /^\/api\/perfis\/(\d+)$/, true, async (c, m) => ({ body: await db.deletePerfil(c.user!, Number(m[1])) }))
 route('POST', /^\/api\/impugnacoes$/, true, async (c) => ({ status: 201, body: await db.createImpugnacao(c.user!, c.body) }))
 route('POST', /^\/api\/impugnacoes\/ordem$/, true, async (c) => ({ body: await db.reordenarImpugnacoes(c.user!, c.body) }))
 route('PUT', /^\/api\/impugnacoes\/([\w-]+)$/, true, async (c, m) => ({ body: await db.updateImpugnacao(c.user!, m[1], c.body) }))

@@ -1,8 +1,9 @@
 import { useState } from 'react'
-import { STATUS_FIXOS, type CategoriaCfg, type Edital, type ImpugnacaoCfg, type ImpugStatusCfg, type StatusCfg, type Transicao } from '../shared'
+import { STATUS_FIXOS, type CategoriaCfg, type Edital, type ImpugnacaoCfg, type ImpugStatusCfg, type PerfilCfg, type PublicUser, type StatusCfg, type Transicao } from '../shared'
 import type { CategoriaInput } from '../lib/api'
 import { ItemForm, ListaOrdenavel, type CfgMode, type Item, type Secao } from './Admin'
 import FluxoEditor from './FluxoEditor'
+import PerfisPanel, { type AcoesPerfil } from './PerfisPanel'
 import { btnPrimary } from './Modals'
 
 /** Ações de uma lista de itens (nome + cor) gerenciada pelo administrador. */
@@ -19,6 +20,9 @@ interface Props {
   impugnacoes: ImpugnacaoCfg[]
   impugStatuses: ImpugStatusCfg[]
   transicoes: Transicao[]
+  perfis: PerfilCfg[]
+  users: PublicUser[]
+  acoesPerfil: AcoesPerfil
   editais: Edital[]
   acoesCat: AcoesLista
   acoesStatus: AcoesLista
@@ -27,7 +31,7 @@ interface Props {
   onSaveFluxo: (v: { transicoes: Transicao[]; posicoes: Record<string, { x: number; y: number }> }) => Promise<boolean>
 }
 
-type Aba = 'cat' | 'status' | 'fluxo' | 'impug'
+type Aba = 'cat' | 'status' | 'fluxo' | 'impug' | 'perfis'
 
 /** Uma lista (com botão de novo, edição e arrastar para ordenar) que alterna entre listagem e formulário na própria página. */
 function ListaConfig({ secao }: { secao: Secao }) {
@@ -133,6 +137,7 @@ export default function ConfigPage(p: Props) {
     { id: 'status', icon: 'flag', label: 'Status' },
     { id: 'fluxo', icon: 'account_tree', label: 'Fluxo dos status' },
     { id: 'impug', icon: 'gavel', label: 'Impugnações' },
+    { id: 'perfis', icon: 'admin_panel_settings', label: 'Perfis de acesso' },
   ]
 
   return (
@@ -161,6 +166,7 @@ export default function ConfigPage(p: Props) {
       {aba === 'cat' && <ListaConfig key="cat" secao={cat} />}
       {aba === 'status' && <ListaConfig key="status" secao={status} />}
       {aba === 'fluxo' && <FluxoEditor statuses={p.statuses} transicoes={p.transicoes} onSave={p.onSaveFluxo} />}
+      {aba === 'perfis' && <PerfisPanel perfis={p.perfis} users={p.users} acoes={p.acoesPerfil} />}
       {aba === 'impug' && (
         <div className="flex flex-col gap-space-lg">
           <ListaConfig key="impug" secao={impug} />

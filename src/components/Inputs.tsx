@@ -30,6 +30,7 @@ interface Props {
   value: string
   onChange: (v: string) => void
   required?: boolean
+  disabled?: boolean
   className?: string
 }
 
@@ -37,6 +38,7 @@ function MaskedInput({
   value,
   onChange,
   required,
+  disabled,
   className,
   toText,
   toValue,
@@ -74,6 +76,7 @@ function MaskedInput({
       autoComplete="off"
       maxLength={length}
       required={required}
+      disabled={disabled}
       placeholder={placeholder}
       className={className}
       value={text}

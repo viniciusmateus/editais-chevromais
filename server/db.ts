@@ -20,6 +20,7 @@ import { createHash, randomBytes, scrypt, timingSafeEqual } from 'node:crypto'
 import { promisify } from 'node:util'
 import {
   CAMPOS_PORTAL,
+  CAMPOS_BASE,
   CATEGORIAS_INICIAIS,
   PORTAIS_INICIAIS,
   REGRAS_PADRAO,
@@ -46,6 +47,9 @@ import {
   type StatusCfg,
   type StatusKey,
   type ImpugnacaoCfg,
+  type PerfilCfg,
+  type Permissoes,
+  type CampoBase,
   type ImpugStatusCfg,
   type EditalImpugnacao,
   type Transicao,
@@ -53,7 +57,7 @@ import {
   type Unchanged,
 } from '../src/shared'
 
-export interface UserRecord extends PublicUser {
+export interface UserRecord extends Omit<PublicUser, 'perms'> {
   salt: string
   hash: string
   criadoEm: number
@@ -72,6 +76,8 @@ interface DbFile {
   nextId: number
   nextUserId: number
   nextPortalId: number
+  nextPerfilId: number
+  perfis: PerfilCfg[]
   users: UserRecord[]
   sessions: SessionRecord[]
   editais: Edital[]
@@ -110,6 +116,8 @@ const emptyDb = (): DbFile => ({
   nextId: 1,
   nextUserId: 1,
   nextPortalId: 1,
+  nextPerfilId: 2,
+  perfis: [perfilPadrao(1)],
   users: [],
   sessions: [],
   editais: [],
@@ -126,7 +134,30 @@ let queue: Promise<unknown> = Promise.resolve()
 
 // ---------- utilidades ----------
 const sha256 = (s: string) => createHash('sha256').update(s).digest('hex')
-const pub = (u: UserRecord): PublicUser => ({ id: u.id, usuario: u.usuario, nome: u.nome, cargo: u.cargo, papel: u.papel, portais: u.portais })
+/** Perfil criado na primeira vez: pode excluir e editar todos os dados base (o administrador restringe depois). */
+function perfilPadrao(id: number): PerfilCfg {
+  return { id, nome: 'Padrão', excluir: true, campos: CAMPOS_BASE.map((c) => c.key) }
+}
+
+const lerCamposBase = (v: unknown): CampoBase[] => CAMPOS_BASE.map((c) => c.key).filter((k) => Array.isArray(v) && v.includes(k))
+
+/** Permissões efetivas: administrador pode tudo; os demais, o que o perfil libera (sem perfil = nada). */
+function permsDe(d: DbFile, u: UserRecord): Permissoes {
+  if (u.papel === 'admin') return { excluir: true, campos: CAMPOS_BASE.map((c) => c.key) }
+  const p = d.perfis.find((x) => x.id === u.perfil)
+  return p ? { excluir: p.excluir, campos: p.campos } : { excluir: false, campos: [] }
+}
+
+const pub = (d: DbFile, u: UserRecord): PublicUser => ({
+  id: u.id,
+  usuario: u.usuario,
+  nome: u.nome,
+  cargo: u.cargo,
+  papel: u.papel,
+  portais: u.portais,
+  perfil: u.perfil ?? null,
+  perms: permsDe(d, u),
+})
 const who = (u: UserRecord) => u.nome || u.usuario
 
 const REGRA_VALORES: Regra[] = ['oculto', 'opcional', 'obrigatorio']
@@ -160,6 +191,21 @@ function cleanPortaisUser(d: DbFile, v: unknown): number[] | null {
   const ids = [...new Set(v.map(Number))]
   if (ids.some((i) => !d.portais.some((p) => p.id === i))) throw new ValidationError('Portal inválido na lista do usuário')
   return ids
+}
+
+/** Perfil de um usuário: id existente, ou null (administrador). Sem informar, um novo usuário recebe o primeiro perfil. */
+function cleanPerfilUser(d: DbFile, v: unknown, papel: Papel): number | null {
+  if (papel === 'admin') return null
+  if (v === undefined) return d.perfis[0]?.id ?? null
+  if (v === null) return null
+  const id = Number(v)
+  if (!d.perfis.some((p) => p.id === id)) throw new ValidationError('Perfil inválido')
+  return id
+}
+
+function cleanPerfil(body: any): { nome: string; excluir: boolean; campos: CampoBase[] } {
+  if (!Array.isArray(body?.campos)) throw new ValidationError('Informe os campos que o perfil pode editar')
+  return { nome: str(body?.nome, 'Nome do perfil', true, 60), excluir: body?.excluir === true, campos: lerCamposBase(body.campos) }
 }
 
 /** Devolve a lista na ordem dos ids informados (que precisam ser exatamente os itens existentes). */
@@ -297,6 +343,18 @@ function normalize(raw: any): DbFile {
   const users: UserRecord[] = (Array.isArray(raw.users) ? raw.users : [])
     .filter((u: any) => u && typeof u.usuario === 'string' && typeof u.hash === 'string' && typeof u.salt === 'string')
     .map((u: any) => ({ ...u, portais: Array.isArray(u.portais) ? u.portais.map(Number).filter(Number.isInteger) : null }))
+  const perfis: PerfilCfg[] = (Array.isArray(raw.perfis) ? raw.perfis : [])
+    .filter((p: any) => p && Number.isInteger(p.id) && typeof p.nome === 'string' && p.nome)
+    .map((p: any) => ({ id: p.id, nome: p.nome, excluir: p.excluir === true, campos: lerCamposBase(p.campos) }))
+  let nextPerfilId = Math.max(Number(raw.nextPerfilId) || 1, ...perfis.map((p) => p.id + 1))
+  if (!Array.isArray(raw.perfis)) {
+    perfis.push(perfilPadrao(nextPerfilId))
+    nextPerfilId++
+  }
+  // quem não tem um perfil válido recebe o primeiro (administradores não precisam)
+  for (const u of users) {
+    if (!perfis.some((p) => p.id === u.perfil)) u.perfil = u.papel === 'admin' ? null : (perfis[0]?.id ?? null)
+  }
   const now = Date.now()
   const sessions: SessionRecord[] = (Array.isArray(raw.sessions) ? raw.sessions : []).filter(
     (s: any) => s && typeof s.id === 'string' && s.expires > now,
@@ -359,6 +417,8 @@ function normalize(raw: any): DbFile {
     impugStatuses,
     transicoes,
     nextPortalId,
+    nextPerfilId,
+    perfis,
     portais,
     categorias,
     nextId: Math.max(Number(raw.nextId) || 1, ...editais.map((e) => (Number(e.id) || 0) + 1)),
@@ -554,7 +614,7 @@ function conferirEdital(d: DbFile, v: EditalInput, perm: Set<string> | null, por
     if (!d.portais.some((p) => p.nome === v.portal)) throw new ValidationError('Portal não cadastrado. Cadastre-o no painel Portais.')
     if (perm && !perm.has(v.portal)) throw new ForbiddenError('Você não tem acesso a este portal')
   }
-  const falta = camposFaltando(regrasDo(d, v.portal), v, criando ? ['valorGanho', 'resultado'] : [])
+  const falta = camposFaltando(regrasDo(d, v.portal), v, criando ? ['valorGanho'] : [])
   if (falta.length) throw new ValidationError(`Campo${falta.length > 1 ? 's' : ''} obrigatório${falta.length > 1 ? 's' : ''}: ${falta.join(', ')}`)
 }
 
@@ -567,8 +627,9 @@ function view(d: DbFile, userId: number): AppState {
   if (!me) throw new AuthError('Sessão inválida')
   return {
     rev: d.rev,
-    me: pub(me),
-    users: me.papel === 'admin' ? d.users.map(pub) : [],
+    me: pub(d, me),
+    users: me.papel === 'admin' ? d.users.map((u) => pub(d, u)) : [],
+    perfis: me.papel === 'admin' ? d.perfis : [],
     ...(() => {
       const perm = portaisPermitidos(d, me)
       return {
@@ -689,7 +750,7 @@ export const db = {
   async authStatus(user: UserRecord | null): Promise<AuthStatus> {
     const d = await load()
     const needsSetup = d.users.length === 0
-    return { needsSetup, user: user ? pub(user) : null, ...(needsSetup && d.legacy ? { sugestao: d.legacy } : {}) }
+    return { needsSetup, user: user ? pub(d, user) : null, ...(needsSetup && d.legacy ? { sugestao: d.legacy } : {}) }
   },
 
   /** Cria o primeiro usuário (administrador). Só funciona enquanto não existe nenhum usuário. */
@@ -701,9 +762,9 @@ export const db = {
     const pw = await hashPassword(senha)
     return mutate((d) => {
       if (d.users.length) throw new ForbiddenError('O sistema já foi configurado. Entre com seu usuário.')
-      const u: UserRecord = { id: d.nextUserId++, usuario, nome, cargo, papel: 'admin', portais: null, ...pw, criadoEm: Date.now() }
+      const u: UserRecord = { id: d.nextUserId++, usuario, nome, cargo, papel: 'admin', portais: null, perfil: null, ...pw, criadoEm: Date.now() }
       d.users.push(u)
-      return { token: addSession(d, u.id), user: pub(u) }
+      return { token: addSession(d, u.id), user: pub(d, u) }
     })
   },
 
@@ -718,7 +779,7 @@ export const db = {
     return mutate((d2) => {
       const cur = d2.users.find((x) => x.id === u.id)
       if (!cur) throw new AuthError('Usuário ou senha incorretos')
-      return { token: addSession(d2, cur.id), user: pub(cur) }
+      return { token: addSession(d2, cur.id), user: pub(d2, cur) }
     }, false)
   },
 
@@ -785,7 +846,7 @@ export const db = {
     return mutate((d) => {
       const me = actorIn(d, admin, true)
       if (d.users.some((u) => u.usuario === usuario)) throw new ValidationError('Já existe um usuário com esse login')
-      d.users.push({ id: d.nextUserId++, usuario, nome, cargo, papel, portais: cleanPortaisUser(d, body?.portais), ...pw, criadoEm: Date.now() })
+      d.users.push({ id: d.nextUserId++, usuario, nome, cargo, papel, portais: cleanPortaisUser(d, body?.portais), perfil: cleanPerfilUser(d, body?.perfil, papel), ...pw, criadoEm: Date.now() })
       return view(d, me.id)
     })
   },
@@ -807,6 +868,7 @@ export const db = {
       if (cargo !== undefined) t.cargo = cargo
       if (papel) t.papel = papel
       if (body?.portais !== undefined) t.portais = cleanPortaisUser(d, body.portais)
+      if (body?.perfil !== undefined || papel) t.perfil = cleanPerfilUser(d, body?.perfil === undefined ? t.perfil : body.perfil, t.papel)
       if (pw) {
         Object.assign(t, pw)
         d.sessions = d.sessions.filter((s) => s.userId !== t.id) // senha trocada pelo admin: derruba as sessões dele
@@ -853,6 +915,13 @@ export const db = {
       const me = actorIn(d, user)
       const e = d.editais.find((x) => x.id === id)
       if (!e || !enxerga(portaisPermitidos(d, me), e)) throw new NotFoundError('Edital não encontrado')
+      // dados base: só os campos que o perfil do usuário libera (trocar o valor de um campo bloqueado é recusado)
+      const perms = permsDe(d, me)
+      for (const c of CAMPOS_BASE) {
+        if (patch[c.key] !== undefined && patch[c.key] !== e[c.key] && !perms.campos.includes(c.key)) {
+          throw new ForbiddenError(`Seu perfil não permite alterar: ${c.label}.`)
+        }
+      }
       if (expectedV !== undefined && expectedV !== e.v) {
         throw new ConflictError(
           `${e.atualizadoPor || 'Outro usuário'} alterou este edital enquanto você editava. Os dados na tela foram atualizados — revise e salve de novo para sobrescrever.`,
@@ -900,6 +969,7 @@ export const db = {
     const set = new Set(ids.map(Number))
     return mutate((d) => {
       const me = actorIn(d, user)
+      if (!permsDe(d, me).excluir) throw new ForbiddenError('Seu perfil não permite excluir editais.')
       const perm = portaisPermitidos(d, me)
       d.editais = d.editais.filter((e) => !(set.has(e.id) && enxerga(perm, e)))
       return view(d, me.id)
@@ -1068,6 +1138,40 @@ export const db = {
       if (usados) throw new ValidationError(`Este status é usado por ${usados} edital(is). Mude o status deles antes de excluí-lo.`)
       d.statuses = d.statuses.filter((s) => s.id !== id)
       d.transicoes = d.transicoes.filter((t) => t.de !== id && t.para !== id)
+      return view(d, me.id)
+    })
+  },
+
+  // ===== perfis de permissão (administrador) =====
+  createPerfil(admin: UserRecord, body: any): Promise<AppState> {
+    const v = cleanPerfil(body)
+    return mutate((d) => {
+      const me = actorIn(d, admin, true)
+      if (d.perfis.some((p) => p.nome.toLowerCase() === v.nome.toLowerCase())) throw new ValidationError('Já existe um perfil com esse nome')
+      d.perfis.push({ id: d.nextPerfilId++, ...v })
+      return view(d, me.id)
+    })
+  },
+
+  updatePerfil(admin: UserRecord, id: number, body: any): Promise<AppState> {
+    const v = cleanPerfil(body)
+    return mutate((d) => {
+      const me = actorIn(d, admin, true)
+      const p = d.perfis.find((x) => x.id === id)
+      if (!p) throw new NotFoundError('Perfil não encontrado')
+      if (d.perfis.some((x) => x.id !== id && x.nome.toLowerCase() === v.nome.toLowerCase())) throw new ValidationError('Já existe um perfil com esse nome')
+      Object.assign(p, v)
+      return view(d, me.id)
+    })
+  },
+
+  deletePerfil(admin: UserRecord, id: number): Promise<AppState> {
+    return mutate((d) => {
+      const me = actorIn(d, admin, true)
+      if (!d.perfis.some((p) => p.id === id)) throw new NotFoundError('Perfil não encontrado')
+      const usos = d.users.filter((u) => u.perfil === id).length
+      if (usos) throw new ValidationError(`Este perfil é usado por ${usos} usuário(s). Mude o perfil deles antes de excluí-lo.`)
+      d.perfis = d.perfis.filter((p) => p.id !== id)
       return view(d, me.id)
     })
   },

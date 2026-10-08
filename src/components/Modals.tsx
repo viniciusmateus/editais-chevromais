@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import {
   MODALIDADES,
   RESULTADOS,
@@ -13,48 +13,68 @@ import {
   type StatusCfg,
   type Transicao,
   type ImpugnacaoCfg,
+  type CampoBase,
+  type PerfilCfg,
+  type Permissoes,
   type ImpugStatusCfg,
   type EditalImpugnacao,
 } from '../shared'
 import type { NewUser, UserPatch } from '../lib/api'
+import { CAMPOS_BASE } from '../shared'
 import { brl, fmtTs, moneyToInput, parseMoney, regrasDoPortal, statusInfo } from '../lib/utils'
 import { DateInput, TimeInput } from './Inputs'
+import { FluxoBotoes } from './EditalTable'
 
 export const input =
-  'w-full h-9 px-3 rounded-lg bg-surface-container-low text-on-surface focus:outline-none focus:ring-1 focus:ring-secondary'
+  'w-full h-9 px-3 rounded-lg bg-surface-container-low text-on-surface focus:outline-none focus:ring-1 focus:ring-secondary disabled:cursor-not-allowed disabled:opacity-60'
 export const labelCls = 'font-label-sm text-label-sm text-outline uppercase tracking-wider'
 export const btnPrimary = 'rounded-lg bg-primary px-4 py-2 font-label-md text-label-md text-on-primary disabled:opacity-60'
 export const btnGhost = 'rounded-lg bg-surface-container-low px-4 py-2 font-label-md text-label-md text-primary'
 
-export function Field({ label, children, className = '' }: { label: string; children: ReactNode; className?: string }) {
+/** Campo com rótulo. Use `semLabel` quando houver botões dentro: num <label>, clicar em qualquer área vazia ativaria o primeiro botão. */
+export function Field({ label, children, className = '', semLabel }: { label: ReactNode; children: ReactNode; className?: string; semLabel?: boolean }) {
+  const Tag = semLabel ? 'div' : 'label'
   return (
-    <label className={`flex flex-col gap-1 ${className}`}>
+    <Tag className={`flex flex-col gap-1 ${className}`}>
       <span className={labelCls}>{label}</span>
       {children}
-    </label>
+    </Tag>
   )
 }
+
+const pilhaModais: number[] = []
+let contadorModais = 0
 
 export function Modal({
   title,
   icon,
   onClose,
   wide,
+  xl,
   children,
 }: {
   title: string
   icon: string
   onClose: () => void
   wide?: boolean
+  xl?: boolean
   children: ReactNode
 }) {
+  // com dois modais abertos (ex.: edição + pergunta do fluxo), Esc fecha só o que está por cima
+  const fechar = useRef(onClose)
+  fechar.current = onClose
   useEffect(() => {
+    const id = ++contadorModais
+    pilhaModais.push(id)
     const h = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
+      if (e.key === 'Escape' && pilhaModais[pilhaModais.length - 1] === id) fechar.current()
     }
     window.addEventListener('keydown', h)
-    return () => window.removeEventListener('keydown', h)
-  }, [onClose])
+    return () => {
+      window.removeEventListener('keydown', h)
+      pilhaModais.splice(pilhaModais.indexOf(id), 1)
+    }
+  }, [])
 
   return (
     <div
@@ -63,7 +83,7 @@ export function Modal({
         if (e.target === e.currentTarget) onClose()
       }}
     >
-      <div className={`max-h-[90vh] w-full ${wide ? 'max-w-3xl' : 'max-w-xl'} overflow-y-auto rounded-xl bg-surface-container-lowest p-space-lg shadow-xl`}>
+      <div className={`max-h-[90vh] w-full ${xl ? 'max-w-5xl' : wide ? 'max-w-3xl' : 'max-w-xl'} overflow-y-auto rounded-xl bg-surface-container-lowest p-space-lg shadow-xl`}>
         <div className="mb-space-md flex items-center justify-between">
           <div className="flex items-center gap-2">
             <span className="material-symbols-outlined text-primary">{icon}</span>
@@ -194,7 +214,11 @@ export function EditalModal({
   statuses,
   impugnacoes,
   impugStatuses,
+  perms,
+  transicoes,
+  onTransicao,
   onSave,
+  onDelete,
   onClose,
 }: {
   initial?: Edital
@@ -203,7 +227,13 @@ export function EditalModal({
   statuses: StatusCfg[]
   impugnacoes: ImpugnacaoCfg[]
   impugStatuses: ImpugStatusCfg[]
+  /** o que o perfil do usuário pode fazer (campos base editáveis, excluir) */
+  perms: Permissoes
+  transicoes: Transicao[]
+  /** botões Avançar / Negativo: o mesmo fluxo da tabela */
+  onTransicao: (t: Transicao) => void
   onSave: (v: EditalInput) => Promise<boolean>
+  onDelete?: () => void
   onClose: () => void
 }) {
   const [imps, setImps] = useState<EditalImpugnacao[]>(initial?.impugnacoes ?? [])
@@ -226,6 +256,21 @@ export function EditalModal({
     status: initial?.status ?? 'PREP',
     resultado: (initial?.resultado ?? '') as Resultado,
   })
+  // o fluxo (botões Avançar/Negativo) pode alterar status, valores, resultado e impugnações com o formulário aberto:
+  // quando a versão do edital muda, esses campos passam a refletir o servidor (senão o Salvar os sobrescreveria com o valor antigo)
+  const versao = initial?.v
+  useEffect(() => {
+    if (!initial) return
+    setF((p) => ({
+      ...p,
+      status: initial.status,
+      resultado: initial.resultado,
+      valorGanho: moneyToInput(initial.valorGanho),
+      valorHomologado: moneyToInput(initial.valorHomologado),
+    }))
+    setImps(initial.impugnacoes)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [versao])
   const [busy, setBusy] = useState(false)
   const set = <K extends keyof typeof f>(k: K, v: (typeof f)[K]) => setF((p) => ({ ...p, [k]: v }))
   const [err, setErr] = useState<string | null>(null)
@@ -237,6 +282,15 @@ export function EditalModal({
   const lbl = (text: string, k: keyof typeof regras) => (req(k) ? `${text} *` : text)
   // portal que já não está cadastrado (excluído/renomeado) continua aparecendo no edital que o usa
   const portalOrfao = f.portal && !portais.some((p) => p.nome === f.portal)
+  // ao editar, só os dados base que o perfil libera; no cadastro novo tudo é preenchido
+  const trava = (k: CampoBase) => !!initial && !perms.campos.includes(k)
+  const rotulo = (texto: string, k: CampoBase) => (
+    <span className="flex items-center gap-1">
+      {texto}
+      {trava(k) && <span className="material-symbols-outlined text-[13px] text-outline" title="Bloqueado pelo seu perfil">lock</span>}
+    </span>
+  )
+  const algumaTrava = !!initial && CAMPOS_BASE.some((c) => trava(c.key))
 
   const submit = async (e: FormEvent) => {
     e.preventDefault()
@@ -252,21 +306,33 @@ export function EditalModal({
     if (ok) onClose()
   }
 
+  const secao = (t: string) => (
+    <h4 className="col-span-12 mt-1 border-b border-surface-container pb-1 font-label-md text-label-md font-bold uppercase tracking-wider text-primary">{t}</h4>
+  )
+
   return (
-    <Modal title={initial ? 'Editar Edital' : 'Novo Edital / Registro'} icon="post_add" onClose={onClose}>
-      <form onSubmit={submit} className="grid grid-cols-2 gap-space-md">
-        <Field label="Portal da licitação">
-          <select className={input} value={f.portal} onChange={(e) => set('portal', e.target.value)}>
+    <Modal title={initial ? `Editar edital${initial.num ? ` — ${initial.num}` : ''}` : 'Novo Edital / Registro'} icon="post_add" xl onClose={onClose}>
+      <form onSubmit={submit} className="grid grid-cols-12 gap-x-space-md gap-y-space-sm">
+        {algumaTrava && (
+          <div className="col-span-12 flex items-center gap-2 rounded-lg bg-surface-container-low px-3 py-2 text-body-sm text-on-surface-variant">
+            <span className="material-symbols-outlined text-[18px]">lock</span>
+            Alguns dados estão bloqueados pelo seu perfil de acesso. Peça a um administrador se precisar alterá-los.
+          </div>
+        )}
+
+        {secao('Identificação')}
+        <Field label={rotulo('Portal da licitação', 'portal')} className="col-span-12 md:col-span-4">
+          <select disabled={trava('portal')} className={input} value={f.portal} onChange={(e) => set('portal', e.target.value)}>
             <option value="">Não informado</option>
             {portalOrfao && <option value={f.portal}>{f.portal} (não cadastrado)</option>}
             {portais.map((p) => (
               <option key={p.id} value={p.nome}>{p.nome}</option>
             ))}
           </select>
-          <span className="text-[11px] text-outline">Os campos abaixo mudam conforme o portal. * = obrigatório.</span>
+          <span className="text-[11px] text-outline">Os campos mudam conforme o portal. * = obrigatório.</span>
         </Field>
-        <Field label="Categoria *">
-          <select required className={input} value={f.cat} onChange={(e) => set('cat', e.target.value)}>
+        <Field label={rotulo('Categoria *', 'cat')} className="col-span-12 md:col-span-4">
+          <select required disabled={trava('cat')} className={input} value={f.cat} onChange={(e) => set('cat', e.target.value)}>
             <option value="">Selecione a categoria…</option>
             {categorias.map((c) => (
               <option key={c.id} value={c.id}>{c.nome}</option>
@@ -274,8 +340,8 @@ export function EditalModal({
           </select>
         </Field>
         {show('mod') && (
-          <Field label="Modalidade">
-            <select className={input} value={f.mod} onChange={(e) => set('mod', Number(e.target.value) as Modalidade)}>
+          <Field label={rotulo('Modalidade', 'mod')} className="col-span-12 md:col-span-4">
+            <select disabled={trava('mod')} className={input} value={f.mod} onChange={(e) => set('mod', Number(e.target.value) as Modalidade)}>
               {MODALIDADES.map((m, i) => (
                 <option key={m} value={i}>{m}</option>
               ))}
@@ -283,42 +349,88 @@ export function EditalModal({
           </Field>
         )}
         {show('num') && (
-          <Field label={lbl('Nº do Edital', 'num')}>
-            <input required={req('num')} className={input} placeholder="PE 001/2026" value={f.num} onChange={(e) => set('num', e.target.value)} />
+          <Field label={rotulo(lbl('Nº do Edital', 'num'), 'num')} className="col-span-12 md:col-span-4">
+            <input required={req('num')} disabled={trava('num')} className={input} placeholder="PE 001/2026" value={f.num} onChange={(e) => set('num', e.target.value)} />
           </Field>
         )}
         {show('uasg') && (
-          <Field label={lbl('UASG / Nº de identificação', 'uasg')}>
-            <input required={req('uasg')} className={input} placeholder="Ex.: 158123 ou 158.123-4" value={f.uasg} onChange={(e) => set('uasg', e.target.value)} />
-            <span className="text-[11px] text-outline">Aceita qualquer formato: números, decimais, traços e letras.</span>
+          <Field label={rotulo(lbl('UASG / Nº de identificação', 'uasg'), 'uasg')} className="col-span-12 md:col-span-4">
+            <input required={req('uasg')} disabled={trava('uasg')} className={input} placeholder="Ex.: 158123 ou 158.123-4" value={f.uasg} onChange={(e) => set('uasg', e.target.value)} />
           </Field>
         )}
+        {initial && (
+          <Field label="Status atual" semLabel className="col-span-12 md:col-span-4">
+            <div className="flex h-9 items-center gap-2 rounded-lg bg-surface-container-low px-3">
+              <span className="h-2.5 w-2.5 rounded-full" style={{ background: statusInfo(statuses, initial.status).cor }} />
+              <span className="font-semibold">{statusInfo(statuses, initial.status).nome}</span>
+            </div>
+            <div className="flex flex-wrap items-center gap-1">
+              <FluxoBotoes x={initial} statuses={statuses} transicoes={transicoes} onPick={onTransicao} />
+            </div>
+          </Field>
+        )}
+
+        {secao('Órgão e local')}
         {show('orgao') && (
-          <Field label={lbl('Órgão Comprador', 'orgao')} className="col-span-2">
-            <input required={req('orgao')} className={input} value={f.orgao} onChange={(e) => set('orgao', e.target.value)} />
+          <Field label={rotulo(lbl('Órgão Comprador', 'orgao'), 'orgao')} className="col-span-12 md:col-span-6">
+            <input required={req('orgao')} disabled={trava('orgao')} className={input} value={f.orgao} onChange={(e) => set('orgao', e.target.value)} />
           </Field>
         )}
         {show('cidade') && (
-          <Field label={lbl('Cidade', 'cidade')}>
-            <input required={req('cidade')} maxLength={80} className={input} placeholder="Ex.: Londrina" value={f.cidade} onChange={(e) => set('cidade', e.target.value)} />
+          <Field label={rotulo(lbl('Cidade', 'cidade'), 'cidade')} className="col-span-8 md:col-span-4">
+            <input required={req('cidade')} disabled={trava('cidade')} maxLength={80} className={input} placeholder="Ex.: Londrina" value={f.cidade} onChange={(e) => set('cidade', e.target.value)} />
           </Field>
         )}
         {show('uf') && (
-          <Field label={lbl('UF', 'uf')}>
-            <input required={req('uf')} maxLength={2} className={`${input} uppercase`} placeholder="PR" value={f.uf} onChange={(e) => set('uf', e.target.value)} />
+          <Field label={rotulo(lbl('UF', 'uf'), 'uf')} className="col-span-4 md:col-span-2">
+            <input required={req('uf')} disabled={trava('uf')} maxLength={2} className={`${input} uppercase`} placeholder="PR" value={f.uf} onChange={(e) => set('uf', e.target.value)} />
           </Field>
         )}
+
+        {secao('Prazo e valores')}
         {show('data') && (
-          <Field label={lbl('Data limite', 'data')}>
-            <DateInput required={req('data')} className={input} value={f.data} onChange={(v) => set('data', v)} />
+          <Field label={rotulo(lbl('Data limite', 'data'), 'data')} className="col-span-6 md:col-span-3">
+            <DateInput required={req('data')} disabled={trava('data')} className={input} value={f.data} onChange={(v) => set('data', v)} />
           </Field>
         )}
         {show('hora') && (
-          <Field label={lbl('Horário (24h)', 'hora')}>
-            <TimeInput required={req('hora')} className={input} value={f.hora} onChange={(v) => set('hora', v)} />
+          <Field label={rotulo(lbl('Horário (24h)', 'hora'), 'hora')} className="col-span-6 md:col-span-3">
+            <TimeInput required={req('hora')} disabled={trava('hora')} className={input} value={f.hora} onChange={(v) => set('hora', v)} />
           </Field>
         )}
-        <div className="col-span-2 flex flex-col gap-2">
+        {initial && show('valorGanho') && (
+          <Field label={lbl('Valor ganho (R$)', 'valorGanho')} className="col-span-6 md:col-span-3">
+            <input
+              inputMode="decimal"
+              autoComplete="off"
+              required={req('valorGanho')}
+              className={input}
+              placeholder="Ex.: 15.000,50"
+              value={f.valorGanho}
+              onChange={(e) => set('valorGanho', e.target.value)}
+            />
+          </Field>
+        )}
+        {initial && (
+          <Field label="Valor homologado (R$)" className="col-span-6 md:col-span-3">
+            <input
+              inputMode="decimal"
+              autoComplete="off"
+              className={input}
+              placeholder="Ex.: 15.000,50"
+              value={f.valorHomologado}
+              onChange={(e) => set('valorHomologado', e.target.value)}
+            />
+          </Field>
+        )}
+        {initial && (
+          <p className="col-span-12 text-[11px] text-outline md:col-span-6 md:self-end">
+            Os valores são preenchidos pelo fluxo (Ganhamos / Homologar); aqui só para corrigir.
+          </p>
+        )}
+
+        {secao('Impugnações')}
+        <div className="col-span-12 flex flex-col gap-2">
           <div className="flex items-center justify-between">
             <span className={labelCls}>Impugnações{imps.length ? ` (${imps.length})` : ''}</span>
             <button
@@ -379,57 +491,16 @@ export function EditalModal({
             !listaImp && <span className="text-[12px] text-outline">Nenhuma impugnação. Use o + para adicionar as que você fez.</span>
           )}
         </div>
-        {initial && (
-          <Field label="Status atual">
-            <div className="flex h-9 items-center gap-2 rounded-lg bg-surface-container-low px-3">
-              <span className="h-2.5 w-2.5 rounded-full" style={{ background: statusInfo(statuses, initial.status).cor }} />
-              <span className="font-semibold">{statusInfo(statuses, initial.status).nome}</span>
-            </div>
-            <span className="text-[11px] text-outline">O status muda pelos botões Avançar / Negativo da tabela.</span>
-          </Field>
-        )}
-        {initial && show('valorGanho') && (
-          <Field label={lbl('Valor ganho (R$)', 'valorGanho')}>
-            <input
-              inputMode="decimal"
-              autoComplete="off"
-              required={req('valorGanho')}
-              className={input}
-              placeholder="Ex.: 15.000,50"
-              value={f.valorGanho}
-              onChange={(e) => set('valorGanho', e.target.value)}
-            />
-            <span className="text-[11px] text-outline">Aceita centavos. Deixe vazio enquanto não ganhou.</span>
-          </Field>
-        )}
-        {initial && (
-          <Field label="Valor homologado (R$)">
-            <input
-              inputMode="decimal"
-              autoComplete="off"
-              className={input}
-              placeholder="Ex.: 15.000,50"
-              value={f.valorHomologado}
-              onChange={(e) => set('valorHomologado', e.target.value)}
-            />
-            <span className="text-[11px] text-outline">Preenchido ao homologar; use aqui só para corrigir.</span>
-          </Field>
-        )}
-        {initial && show('resultado') && (
-          <Field label="Resultado da licitação">
-            <select
-              className={`${input} font-semibold ${f.resultado === 'GANHAMOS' ? 'text-green-700' : f.resultado === 'PERDEMOS' ? 'text-red-700' : ''}`}
-              value={f.resultado}
-              onChange={(e) => set('resultado', e.target.value as Resultado)}
-            >
-              <option value="">Em andamento</option>
-              <option value="GANHAMOS">{RESULTADOS.GANHAMOS}</option>
-              <option value="PERDEMOS">{RESULTADOS.PERDEMOS}</option>
-            </select>
-          </Field>
-        )}
-        {err && <div className="col-span-2 rounded-lg bg-error-container/50 px-3 py-2 text-body-sm font-medium text-on-error-container">{err}</div>}
-        <div className="col-span-2">
+
+        {err && <div className="col-span-12 rounded-lg bg-error-container/50 px-3 py-2 text-body-sm font-medium text-on-error-container">{err}</div>}
+        <div className="col-span-12 mt-1 flex items-center justify-between gap-space-sm border-t border-surface-container pt-space-sm">
+          {initial && onDelete && perms.excluir ? (
+            <button type="button" onClick={onDelete} className="flex items-center gap-1 rounded-lg bg-error-container/50 px-3 py-2 font-label-md text-label-md font-bold text-error hover:bg-error-container">
+              <span className="material-symbols-outlined text-[18px]">delete</span> Excluir edital
+            </button>
+          ) : (
+            <span />
+          )}
           <Actions onClose={onClose} busy={busy} submit="Salvar" />
         </div>
       </form>
@@ -749,16 +820,19 @@ interface UserFormValue {
   senha: string
   papel: Papel
   portais: number[] | null
+  perfil: number | null
 }
 
 function UserForm({
   initial,
   portais,
+  perfis,
   onSubmit,
   onCancel,
 }: {
   initial?: PublicUser
   portais: Portal[]
+  perfis: PerfilCfg[]
   onSubmit: (v: UserFormValue) => Promise<boolean>
   onCancel: () => void
 }) {
@@ -770,6 +844,7 @@ function UserForm({
     senha: '',
     papel: initial?.papel ?? 'usuario',
     portais: initial?.portais ?? null,
+    perfil: initial ? initial.perfil : (perfis[0]?.id ?? null),
   })
   const [busy, setBusy] = useState(false)
   const set = <K extends keyof UserFormValue>(k: K, v: UserFormValue[K]) => setF((p) => ({ ...p, [k]: v }))
@@ -807,6 +882,17 @@ function UserForm({
       <Field label="Cargo">
         <input maxLength={80} className={input} value={f.cargo} onChange={(e) => set('cargo', e.target.value)} />
       </Field>
+      {f.papel === 'usuario' && (
+        <Field label="Perfil de permissões" className="col-span-2">
+          <select className={input} value={f.perfil ?? ''} onChange={(e) => set('perfil', e.target.value === '' ? null : Number(e.target.value))}>
+            <option value="">Sem perfil (não edita dados nem exclui editais)</option>
+            {perfis.map((p) => (
+              <option key={p.id} value={p.id}>{p.nome}</option>
+            ))}
+          </select>
+          <span className="text-[11px] text-outline">Define o que o usuário pode editar e excluir. Os perfis são criados em Configurações → Perfis.</span>
+        </Field>
+      )}
       {f.papel === 'usuario' && (
         <div className="col-span-2 flex flex-col gap-2 rounded-lg border border-surface-container p-space-sm">
           <span className={labelCls}>Portais que este usuário enxerga</span>
@@ -861,6 +947,7 @@ export function UsersModal({
   me,
   users,
   portais,
+  perfis,
   onCreate,
   onUpdate,
   onDelete,
@@ -869,6 +956,7 @@ export function UsersModal({
   me: PublicUser
   users: PublicUser[]
   portais: Portal[]
+  perfis: PerfilCfg[]
   onCreate: (v: NewUser) => Promise<boolean>
   onUpdate: (id: number, v: UserPatch) => Promise<boolean>
   onDelete: (u: PublicUser) => void
@@ -880,7 +968,7 @@ export function UsersModal({
   if (mode.k === 'new') {
     return (
       <Modal title="Novo usuário" icon="person_add" onClose={onClose}>
-        <UserForm portais={portais} onSubmit={(v) => onCreate(v)} onCancel={back} />
+        <UserForm portais={portais} perfis={perfis} onSubmit={(v) => onCreate(v)} onCancel={back} />
       </Modal>
     )
   }
@@ -891,8 +979,9 @@ export function UsersModal({
         <UserForm
           initial={target}
           portais={portais}
+          perfis={perfis}
           onSubmit={(v) =>
-            onUpdate(target.id, { nome: v.nome, cargo: v.cargo, papel: v.papel, portais: v.portais, ...(v.senha ? { senha: v.senha } : {}) })
+            onUpdate(target.id, { nome: v.nome, cargo: v.cargo, papel: v.papel, portais: v.portais, perfil: v.perfil, ...(v.senha ? { senha: v.senha } : {}) })
           }
           onCancel={back}
         />
@@ -903,7 +992,7 @@ export function UsersModal({
   return (
     <Modal title="Usuários" icon="group" onClose={onClose}>
       <p className="mb-space-md text-body-sm text-on-surface-variant">
-        Todos os usuários enxergam e editam os mesmos editais. Só administradores gerenciam contas.
+        O que cada usuário pode editar e excluir é definido pelo perfil dele (Configurações → Perfis). Só administradores gerenciam contas.
       </p>
       <div className="flex flex-col divide-y divide-surface-container-low rounded-lg border border-surface-container">
         {users.map((u) => (
@@ -915,6 +1004,11 @@ export function UsersModal({
                   <span className="rounded bg-secondary-container/40 px-1.5 text-[10px] font-bold text-on-secondary-container">ADMIN</span>
                 )}
                 {u.id === me.id && <span className="rounded bg-surface-container px-1.5 text-[10px] font-bold text-on-surface">VOCÊ</span>}
+                {u.papel !== 'admin' && (
+                  <span className="rounded bg-primary-container/60 px-1.5 text-[10px] font-bold uppercase text-on-primary-container">
+                    {perfis.find((p) => p.id === u.perfil)?.nome ?? 'Sem perfil'}
+                  </span>
+                )}
                 {u.papel !== 'admin' && u.portais !== null && (
                   <span className="rounded bg-surface-container px-1.5 text-[10px] font-bold text-on-surface">{u.portais.length} PORTAL(IS)</span>
                 )}

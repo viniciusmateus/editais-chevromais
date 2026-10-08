@@ -1,4 +1,4 @@
-import type { AppState, AuthStatus, EditalInput, Papel, RegrasCampos, Transicao, Unchanged } from '../shared'
+import type { AppState, AuthStatus, CampoBase, EditalInput, Papel, RegrasCampos, Transicao, Unchanged } from '../shared'
 
 export interface PortalInput {
   nome: string
@@ -26,6 +26,14 @@ export interface NewUser {
   papel: Papel
   /** ids dos portais liberados; null = todos */
   portais: number[] | null
+  /** id do perfil de permissões (ignorado para administradores) */
+  perfil: number | null
+}
+
+export interface PerfilInput {
+  nome: string
+  excluir: boolean
+  campos: CampoBase[]
 }
 
 export interface UserPatch {
@@ -33,6 +41,7 @@ export interface UserPatch {
   cargo: string
   papel: Papel
   portais: number[] | null
+  perfil: number | null
   /** só enviar para redefinir a senha */
   senha?: string
 }
@@ -89,6 +98,9 @@ export const api = {
   updateStatus: (id: string, v: CategoriaInput) => req<AppState>(`/api/status/${encodeURIComponent(id)}`, 'PUT', v),
   deleteStatus: (id: string) => req<AppState>(`/api/status/${encodeURIComponent(id)}`, 'DELETE'),
 
+  createPerfil: (v: PerfilInput) => req<AppState>('/api/perfis', 'POST', v),
+  updatePerfil: (id: number, v: PerfilInput) => req<AppState>(`/api/perfis/${id}`, 'PUT', v),
+  deletePerfil: (id: number) => req<AppState>(`/api/perfis/${id}`, 'DELETE'),
   createImpugnacao: (v: CategoriaInput) => req<AppState>('/api/impugnacoes', 'POST', v),
   updateImpugnacao: (id: string, v: CategoriaInput) => req<AppState>(`/api/impugnacoes/${encodeURIComponent(id)}`, 'PUT', v),
   deleteImpugnacao: (id: string) => req<AppState>(`/api/impugnacoes/${encodeURIComponent(id)}`, 'DELETE'),
