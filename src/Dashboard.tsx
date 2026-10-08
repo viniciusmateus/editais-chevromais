@@ -203,7 +203,9 @@ export default function Dashboard({ onLogout }: { onLogout: () => void }) {
 
   /** Botão do fluxo: sem exigência grava direto; com motivo/valor, abre o modal antes de gravar. */
   const usarTransicao = (id: number, t: Transicao) => {
-    if (t.exige === 'nada') void act(() => api.updateEdital(id, { status: t.para }), `Status: ${state?.statuses.find((s) => s.id === t.para)?.nome ?? t.rotulo}.`)
+    // "resultado das impugnações" só pergunta quando o edital tem impugnações
+    const semPergunta = t.exige === 'nada' || (t.exige === 'impugnacoes' && !editais.find((x) => x.id === id)?.impugnacoes.length)
+    if (semPergunta) void act(() => api.updateEdital(id, { status: t.para }), `Status: ${state?.statuses.find((s) => s.id === t.para)?.nome ?? t.rotulo}.`)
     else setModal({ type: 'transicao', id, t })
   }
 
@@ -281,27 +283,51 @@ export default function Dashboard({ onLogout }: { onLogout: () => void }) {
           <div className="flex w-full flex-col gap-space-lg pb-12 pt-space-lg">
             {/* Topo */}
             {nav === 'configuracoes' && isAdmin ? (
-                  <ConfigPage
-              categorias={state.categorias}
-              statuses={state.statuses}
-              transicoes={state.transicoes}
-              editais={editais}
-              onSaveFluxo={(v) => act(() => api.salvarFluxo(v), 'Fluxo salvo.')}
-              onCreateCat={(v) => act(() => api.createCategoria(v), 'Categoria criada.')}
-              onUpdateCat={(id, v) => act(() => api.updateCategoria(id, v), 'Categoria atualizada.')}
-              onDeleteCat={(c, usos) => {
-                if (usos) return notify(`A categoria ${c.nome} é usada por ${usos} edital(is). Mude a categoria deles antes de excluí-la.`, true)
-                if (confirm(`Excluir a categoria ${c.nome}?`)) void act(() => api.deleteCategoria(c.id), 'Categoria excluída.')
-              }}
-              onReorderCat={(ids) => act(() => api.reordenarCategorias(ids))}
-              onReorderStatus={(ids) => act(() => api.reordenarStatus(ids))}
-              onCreateStatus={(v) => act(() => api.createStatus(v), 'Status criado.')}
-              onUpdateStatus={(id, v) => act(() => api.updateStatus(id, v), 'Status atualizado.')}
-              onDeleteStatus={(s, usos) => {
-                if (usos) return notify(`O status ${s.nome} é usado por ${usos} edital(is). Mude o status deles antes de excluí-lo.`, true)
-                if (confirm(`Excluir o status ${s.nome}?`)) void act(() => api.deleteStatus(s.id), 'Status excluído.')
-              }}
-            />
+              <ConfigPage
+                categorias={state.categorias}
+                statuses={state.statuses}
+                impugnacoes={state.impugnacoes}
+                impugStatuses={state.impugStatuses}
+                transicoes={state.transicoes}
+                editais={editais}
+                onSaveFluxo={(v) => act(() => api.salvarFluxo(v), 'Fluxo salvo.')}
+                acoesCat={{
+                  onCreate: (v) => act(() => api.createCategoria(v), 'Categoria criada.'),
+                  onUpdate: (id, v) => act(() => api.updateCategoria(id, v), 'Categoria atualizada.'),
+                  onDelete: (c, usos) => {
+                    if (usos) return notify(`A categoria ${c.nome} é usada por ${usos} edital(is). Mude a categoria deles antes de excluí-la.`, true)
+                    if (confirm(`Excluir a categoria ${c.nome}?`)) void act(() => api.deleteCategoria(c.id), 'Categoria excluída.')
+                  },
+                  onReorder: (ids) => act(() => api.reordenarCategorias(ids)),
+                }}
+                acoesStatus={{
+                  onCreate: (v) => act(() => api.createStatus(v), 'Status criado.'),
+                  onUpdate: (id, v) => act(() => api.updateStatus(id, v), 'Status atualizado.'),
+                  onDelete: (s, usos) => {
+                    if (usos) return notify(`O status ${s.nome} é usado por ${usos} edital(is). Mude o status deles antes de excluí-lo.`, true)
+                    if (confirm(`Excluir o status ${s.nome}?`)) void act(() => api.deleteStatus(s.id), 'Status excluído.')
+                  },
+                  onReorder: (ids) => act(() => api.reordenarStatus(ids)),
+                }}
+                acoesImpug={{
+                  onCreate: (v) => act(() => api.createImpugnacao(v), 'Impugnação criada.'),
+                  onUpdate: (id, v) => act(() => api.updateImpugnacao(id, v), 'Impugnação atualizada.'),
+                  onDelete: (i, usos) => {
+                    if (usos) return notify(`A impugnação ${i.nome} é usada por ${usos} edital(is). Remova-a deles antes de excluí-la.`, true)
+                    if (confirm(`Excluir a impugnação ${i.nome}?`)) void act(() => api.deleteImpugnacao(i.id), 'Impugnação excluída.')
+                  },
+                  onReorder: (ids) => act(() => api.reordenarImpugnacoes(ids)),
+                }}
+                acoesImpugStatus={{
+                  onCreate: (v) => act(() => api.createImpugStatus(v), 'Status criado.'),
+                  onUpdate: (id, v) => act(() => api.updateImpugStatus(id, v), 'Status atualizado.'),
+                  onDelete: (i, usos) => {
+                    if (usos) return notify(`O status ${i.nome} é usado por ${usos} edital(is). Mude o resultado das impugnações deles antes de excluí-lo.`, true)
+                    if (confirm(`Excluir o status ${i.nome}?`)) void act(() => api.deleteImpugStatus(i.id), 'Status excluído.')
+                  },
+                  onReorder: (ids) => act(() => api.reordenarImpugStatus(ids)),
+                }}
+              />
             ) : (
               <>
             <div className="flex flex-col justify-between gap-space-md rounded-xl bg-surface-container-lowest p-space-lg shadow-sm xl:flex-row xl:items-center">
@@ -395,6 +421,8 @@ export default function Dashboard({ onLogout }: { onLogout: () => void }) {
                 onToggle={toggle}
                 onTransicao={usarTransicao}
                 transicoes={state.transicoes}
+                impugnacoes={state.impugnacoes}
+                impugStatuses={state.impugStatuses}
                 onRetif={(id) => setModal({ type: 'retif', id })}
                 onHist={(id) => setModal({ type: 'hist', id })}
                 onEdit={(id) => setModal({ type: 'edital', id, v: editais.find((x) => x.id === id)?.v })}
@@ -425,6 +453,8 @@ export default function Dashboard({ onLogout }: { onLogout: () => void }) {
           categorias={state.categorias}
           portais={state.portais}
           statuses={state.statuses}
+          impugnacoes={state.impugnacoes}
+          impugStatuses={state.impugStatuses}
           onClose={closeModal}
           onSave={(v) =>
             act(
@@ -448,6 +478,8 @@ export default function Dashboard({ onLogout }: { onLogout: () => void }) {
           edital={modalEdital}
           transicao={modal.t}
           statuses={state.statuses}
+          impugnacoes={state.impugnacoes}
+          impugStatuses={state.impugStatuses}
           onClose={closeModal}
           onSave={(v) => act(() => api.updateEdital(modal.id, { status: modal.t.para, ...v }), 'Status atualizado.')}
         />

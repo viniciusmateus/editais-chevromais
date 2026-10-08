@@ -144,6 +144,15 @@ route('POST', /^\/api\/status\/ordem$/, true, async (c) => ({ body: await db.reo
 route('PUT', /^\/api\/status\/([\w-]+)$/, true, async (c, m) => ({ body: await db.updateStatus(c.user!, m[1], c.body) }))
 route('DELETE', /^\/api\/status\/([\w-]+)$/, true, async (c, m) => ({ body: await db.deleteStatus(c.user!, m[1]) }))
 
+route('POST', /^\/api\/impugnacoes$/, true, async (c) => ({ status: 201, body: await db.createImpugnacao(c.user!, c.body) }))
+route('POST', /^\/api\/impugnacoes\/ordem$/, true, async (c) => ({ body: await db.reordenarImpugnacoes(c.user!, c.body) }))
+route('PUT', /^\/api\/impugnacoes\/([\w-]+)$/, true, async (c, m) => ({ body: await db.updateImpugnacao(c.user!, m[1], c.body) }))
+route('DELETE', /^\/api\/impugnacoes\/([\w-]+)$/, true, async (c, m) => ({ body: await db.deleteImpugnacao(c.user!, m[1]) }))
+route('POST', /^\/api\/impug-status$/, true, async (c) => ({ status: 201, body: await db.createImpugStatus(c.user!, c.body) }))
+route('POST', /^\/api\/impug-status\/ordem$/, true, async (c) => ({ body: await db.reordenarImpugStatus(c.user!, c.body) }))
+route('PUT', /^\/api\/impug-status\/([\w-]+)$/, true, async (c, m) => ({ body: await db.updateImpugStatus(c.user!, m[1], c.body) }))
+route('DELETE', /^\/api\/impug-status\/([\w-]+)$/, true, async (c, m) => ({ body: await db.deleteImpugStatus(c.user!, m[1]) }))
+
 route('POST', /^\/api\/fluxo$/, true, async (c) => ({ body: await db.salvarFluxo(c.user!, c.body) }))
 
 // editais

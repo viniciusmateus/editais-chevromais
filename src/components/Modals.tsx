@@ -12,6 +12,9 @@ import {
   type Resultado,
   type StatusCfg,
   type Transicao,
+  type ImpugnacaoCfg,
+  type ImpugStatusCfg,
+  type EditalImpugnacao,
 } from '../shared'
 import type { NewUser, UserPatch } from '../lib/api'
 import { brl, fmtTs, moneyToInput, parseMoney, regrasDoPortal, statusInfo } from '../lib/utils'
@@ -98,22 +101,28 @@ export function TransicaoModal({
   edital,
   transicao,
   statuses,
+  impugnacoes,
+  impugStatuses,
   onSave,
   onClose,
 }: {
   edital: Edital
   transicao: Transicao
   statuses: StatusCfg[]
-  onSave: (v: { motivo?: string; valor?: number }) => Promise<boolean>
+  impugnacoes: ImpugnacaoCfg[]
+  impugStatuses: ImpugStatusCfg[]
+  onSave: (v: { motivo?: string; valor?: number; impugRespostas?: Record<string, string> }) => Promise<boolean>
   onClose: () => void
 }) {
   const [motivo, setMotivo] = useState('')
+  const [resp, setResp] = useState<Record<string, string>>(() => Object.fromEntries(edital.impugnacoes.map((i) => [i.id, i.status])))
   const [valor, setValor] = useState(moneyToInput(transicao.exige === 'valorGanho' ? edital.valorGanho : edital.valorHomologado))
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
   const de = statuses.find((s) => s.id === transicao.de)?.nome ?? transicao.de
   const para = statuses.find((s) => s.id === transicao.para)?.nome ?? transicao.para
   const comValor = transicao.exige === 'valorGanho' || transicao.exige === 'valorHomologado'
+  const comImpugs = transicao.exige === 'impugnacoes' && edital.impugnacoes.length > 0
 
   const submit = async (e: FormEvent) => {
     e.preventDefault()
@@ -123,9 +132,10 @@ export function TransicaoModal({
       if (n === null || !(n > 0)) return setErr('Informe o valor total (maior que zero). Ex.: 15000, 15.000,50')
       v = n
     }
+    if (comImpugs && edital.impugnacoes.some((i) => !resp[i.id])) return setErr('Informe o resultado de todas as impugnações.')
     setErr(null)
     setBusy(true)
-    const ok = await onSave(transicao.exige === 'motivo' ? { motivo: motivo.trim() } : comValor ? { valor: v } : {})
+    const ok = await onSave(transicao.exige === 'motivo' ? { motivo: motivo.trim() } : comValor ? { valor: v } : comImpugs ? { impugRespostas: resp } : {})
     setBusy(false)
     if (ok) onClose()
   }
@@ -146,6 +156,29 @@ export function TransicaoModal({
             <input required autoFocus inputMode="decimal" autoComplete="off" className={input} placeholder="Ex.: 15.000,50" value={valor} onChange={(e) => setValor(e.target.value)} />
           </Field>
         )}
+        {comImpugs && (
+          <div className="flex flex-col gap-space-sm">
+            <span className={labelCls}>Resultado das impugnações *</span>
+            {edital.impugnacoes.map((i) => {
+              const cfg = impugnacoes.find((x) => x.id === i.id)
+              return (
+                <div key={i.id} className="flex flex-col gap-1 rounded-lg bg-surface-container-low p-space-sm">
+                  <span className="flex items-center gap-1.5 font-label-md text-label-md font-semibold">
+                    <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: cfg?.cor ?? '#64748b' }} />
+                    {cfg?.nome ?? i.id}
+                  </span>
+                  <select required className={input} value={resp[i.id] ?? ''} onChange={(e) => setResp((p) => ({ ...p, [i.id]: e.target.value }))}>
+                    <option value="">Selecione…</option>
+                    {impugStatuses.map((s) => (
+                      <option key={s.id} value={s.id}>{s.nome}</option>
+                    ))}
+                  </select>
+                </div>
+              )
+            })}
+            {impugStatuses.length === 0 && <span className="text-[12px] text-error">Nenhum status de impugnação cadastrado (Configurações → Impugnações).</span>}
+          </div>
+        )}
         {err && <div className="rounded-lg bg-error-container/50 px-3 py-2 text-body-sm font-medium text-on-error-container">{err}</div>}
         <Actions onClose={onClose} busy={busy} submit="Confirmar" danger={transicao.negativo} />
       </form>
@@ -159,6 +192,8 @@ export function EditalModal({
   categorias,
   portais,
   statuses,
+  impugnacoes,
+  impugStatuses,
   onSave,
   onClose,
 }: {
@@ -166,9 +201,14 @@ export function EditalModal({
   categorias: CategoriaCfg[]
   portais: Portal[]
   statuses: StatusCfg[]
+  impugnacoes: ImpugnacaoCfg[]
+  impugStatuses: ImpugStatusCfg[]
   onSave: (v: EditalInput) => Promise<boolean>
   onClose: () => void
 }) {
+  const [imps, setImps] = useState<EditalImpugnacao[]>(initial?.impugnacoes ?? [])
+  const [listaImp, setListaImp] = useState(false)
+  const alternarImp = (id: string) => setImps((l) => (l.some((i) => i.id === id) ? l.filter((i) => i.id !== id) : [...l, { id, status: '' }]))
   const [f, setF] = useState({
     // ao cadastrar a categoria começa vazia (para ninguém esquecer); ao editar mantém a que já está salva
     cat: initial?.cat ?? '',
@@ -207,7 +247,7 @@ export function EditalModal({
     if (valorHomologado === null) return setErr('Valor homologado inválido. Use só números, por exemplo 15000 ou 15.000,50.')
     setErr(null)
     setBusy(true)
-    const ok = await onSave({ ...f, valorGanho, valorHomologado, uf: f.uf.toUpperCase() })
+    const ok = await onSave({ ...f, impugnacoes: imps, valorGanho, valorHomologado, uf: f.uf.toUpperCase() })
     setBusy(false)
     if (ok) onClose()
   }
@@ -278,6 +318,67 @@ export function EditalModal({
             <TimeInput required={req('hora')} className={input} value={f.hora} onChange={(v) => set('hora', v)} />
           </Field>
         )}
+        <div className="col-span-2 flex flex-col gap-2">
+          <div className="flex items-center justify-between">
+            <span className={labelCls}>Impugnações{imps.length ? ` (${imps.length})` : ''}</span>
+            <button
+              type="button"
+              onClick={() => setListaImp((v) => !v)}
+              title="Adicionar impugnações feitas"
+              className="flex h-7 w-7 items-center justify-center rounded-full bg-primary text-on-primary hover:bg-primary-hover"
+            >
+              <span className="material-symbols-outlined text-[18px]">{listaImp ? 'close' : 'add'}</span>
+            </button>
+          </div>
+          {listaImp && (
+            <div className="rounded-lg border border-surface-container bg-surface-container-low p-space-sm">
+              {impugnacoes.length === 0 ? (
+                <p className="text-body-sm text-on-surface-variant">Nenhuma impugnação cadastrada. O administrador cadastra em Configurações → Impugnações.</p>
+              ) : (
+                <ul className="flex max-h-48 flex-col gap-1 overflow-y-auto">
+                  {impugnacoes.map((c) => {
+                    const on = imps.some((i) => i.id === c.id)
+                    return (
+                      <li key={c.id}>
+                        <button
+                          type="button"
+                          onClick={() => alternarImp(c.id)}
+                          className={`flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left font-label-md text-label-md ${on ? 'bg-primary-container font-semibold text-on-primary-container' : 'bg-surface-container-lowest hover:bg-surface-container'}`}
+                        >
+                          <span className="material-symbols-outlined text-[18px]">{on ? 'check_box' : 'check_box_outline_blank'}</span>
+                          <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: c.cor }} />
+                          {c.nome}
+                        </button>
+                      </li>
+                    )
+                  })}
+                </ul>
+              )}
+              <div className="flex justify-end pt-space-xs">
+                <button type="button" onClick={() => setListaImp(false)} className={btnGhost}>Concluir</button>
+              </div>
+            </div>
+          )}
+          {imps.length > 0 ? (
+            <div className="flex flex-wrap gap-1.5">
+              {imps.map((i) => {
+                const c = impugnacoes.find((x) => x.id === i.id)
+                const st = impugStatuses.find((x) => x.id === i.status)
+                return (
+                  <span key={i.id} className="flex items-center gap-1.5 rounded-full py-0.5 pl-2.5 pr-1 text-[12px] font-semibold" style={{ background: `${c?.cor ?? '#64748b'}22`, color: c?.cor ?? '#64748b' }}>
+                    {c?.nome ?? i.id}
+                    {st && <span className="rounded-full px-1.5 text-[10px] font-bold text-white" style={{ background: st.cor }}>{st.nome}</span>}
+                    <button type="button" aria-label="Remover" onClick={() => alternarImp(i.id)} className="flex h-4 w-4 items-center justify-center rounded-full hover:bg-black/10">
+                      <span className="material-symbols-outlined text-[14px]">close</span>
+                    </button>
+                  </span>
+                )
+              })}
+            </div>
+          ) : (
+            !listaImp && <span className="text-[12px] text-outline">Nenhuma impugnação. Use o + para adicionar as que você fez.</span>
+          )}
+        </div>
         {initial && (
           <Field label="Status atual">
             <div className="flex h-9 items-center gap-2 rounded-lg bg-surface-container-low px-3">

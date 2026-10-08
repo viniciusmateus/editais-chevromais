@@ -45,6 +45,9 @@ import {
   type PublicUser,
   type StatusCfg,
   type StatusKey,
+  type ImpugnacaoCfg,
+  type ImpugStatusCfg,
+  type EditalImpugnacao,
   type Transicao,
   type ExigeTransicao,
   type Unchanged,
@@ -75,6 +78,8 @@ interface DbFile {
   portais: Portal[]
   categorias: CategoriaCfg[]
   statuses: StatusCfg[]
+  impugnacoes: ImpugnacaoCfg[]
+  impugStatuses: ImpugStatusCfg[]
   transicoes: Transicao[]
   legacy?: { nome: string; cargo: string }
 }
@@ -112,6 +117,8 @@ const emptyDb = (): DbFile => ({
   categorias: CATEGORIAS_INICIAIS.map((c) => ({ ...c })),
   statuses: STATUS_INICIAIS.map((s) => ({ ...s })),
   transicoes: [],
+  impugnacoes: [],
+  impugStatuses: [],
 })
 
 let cache: DbFile | null = null
@@ -175,7 +182,7 @@ function str(v: unknown, field: string, required: boolean, max = 2000): string {
   return s
 }
 
-const EXIGE_VALORES: ExigeTransicao[] = ['nada', 'motivo', 'valorGanho', 'valorHomologado']
+const EXIGE_VALORES: ExigeTransicao[] = ['nada', 'motivo', 'valorGanho', 'valorHomologado', 'impugnacoes']
 const semAcento = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim()
 
 /** Lê as ligações gravadas ignorando o que for inválido (status que não existe, par repetido, etc.). */
@@ -194,6 +201,33 @@ function lerTransicoes(raw: any, statuses: StatusCfg[]): Transicao[] {
     })
   }
   return out
+}
+
+/** Impugnações gravadas no edital: só objetos válidos, sem repetir o mesmo id. */
+function lerImpugsDoEdital(v: any): EditalImpugnacao[] {
+  const out: EditalImpugnacao[] = []
+  for (const i of Array.isArray(v) ? v : []) {
+    if (i && typeof i.id === 'string' && i.id && !out.some((o) => o.id === i.id)) out.push({ id: i.id, status: typeof i.status === 'string' ? i.status : '' })
+  }
+  return out
+}
+
+/** Confere as impugnações informadas contra o cadastro (ids e status existentes). */
+function conferirImpugs(d: DbFile, v: any): EditalImpugnacao[] {
+  const lista = lerImpugsDoEdital(v)
+  for (const i of lista) {
+    if (!d.impugnacoes.some((x) => x.id === i.id)) throw new ValidationError('Impugnação inválida: escolha uma impugnação cadastrada')
+    if (i.status && !d.impugStatuses.some((s) => s.id === i.status)) throw new ValidationError('Status de impugnação inválido')
+  }
+  return lista
+}
+
+/** "Impugnação A (Deferida), Impugnação B (sem resposta)" para o histórico. */
+function textoImpugs(d: DbFile, l: EditalImpugnacao[]): string {
+  if (!l.length) return '—'
+  return l
+    .map((i) => `${d.impugnacoes.find((x) => x.id === i.id)?.nome ?? i.id} (${i.status ? (d.impugStatuses.find((s) => s.id === i.status)?.nome ?? i.status) : 'sem resposta'})`)
+    .join(', ')
 }
 
 /**
@@ -224,7 +258,7 @@ function fluxoInicial(statuses: StatusCfg[]): Transicao[] {
   const t = (de: StatusCfg, para: StatusCfg | undefined, rotulo: string, extra: Partial<Transicao> = {}): Transicao[] =>
     para ? [{ de: de.id, para: para.id, rotulo, negativo: false, exige: 'nada', resultado: '', ...extra }] : []
   return [
-    ...t(inicio, cadastrado, 'Cadastrar'),
+    ...t(inicio, cadastrado, 'Cadastrar', { exige: 'impugnacoes' }),
     ...t(cadastrado, ganho, 'Ganhamos', { exige: 'valorGanho', resultado: 'GANHAMOS' }),
     ...t(cadastrado, perdido, 'Perdemos', { resultado: 'PERDEMOS' }),
     ...t(ganho, homologado, 'Homologar', { exige: 'valorHomologado' }),
@@ -256,6 +290,7 @@ function normalize(raw: any): DbFile {
       resultado: e.resultado === 'GANHAMOS' || e.resultado === 'PERDEMOS' ? e.resultado : '',
       log: Array.isArray(e.log) ? e.log : [],
       valorGanho: Number.isFinite(ganho) && ganho > 0 ? ganho : 0,
+      impugnacoes: lerImpugsDoEdital(e.impugnacoes),
       valorHomologado: Number.isFinite(Number(e.valorHomologado)) && Number(e.valorHomologado) > 0 ? Number(e.valorHomologado) : 0,
     }
   })
@@ -307,12 +342,21 @@ function normalize(raw: any): DbFile {
     if (!statuses.some((s) => s.id === id)) statuses.push(STATUS_INICIAIS.find((s) => s.id === id) ?? { id: String(id), nome: String(id), cor: '#64748b' })
   }
 
+  const lerItens = (v: any) =>
+    (Array.isArray(v) ? v : [])
+      .filter((i: any) => i && typeof i.id === 'string' && i.id && typeof i.nome === 'string')
+      .map((i: any) => ({ id: i.id, nome: i.nome, cor: COR_RE.test(i.cor) ? i.cor : '#64748b' }))
+  const impugnacoes: ImpugnacaoCfg[] = lerItens(raw.impugnacoes)
+  const impugStatuses: ImpugStatusCfg[] = lerItens(raw.impugStatuses)
+
   const transicoes = Array.isArray(raw.transicoes) ? lerTransicoes(raw.transicoes, statuses) : fluxoInicial(statuses)
 
   const out: DbFile = {
     version: 2,
     rev: Number(raw.rev) || 0,
     statuses,
+    impugnacoes,
+    impugStatuses,
     transicoes,
     nextPortalId,
     portais,
@@ -456,6 +500,10 @@ function parseEdital(body: any, partial: boolean): Partial<EditalInput> {
     if (!Number.isFinite(v) || v < 0 || v > 1e12) throw new ValidationError('Valor ganho inválido')
     out.valorGanho = Math.round(v * 100) / 100 // centavos
   }
+  if (has('impugnacoes')) {
+    if (!Array.isArray(body.impugnacoes ?? [])) throw new ValidationError('Impugnações inválidas')
+    out.impugnacoes = lerImpugsDoEdital(body.impugnacoes ?? [])
+  }
   if (has('valorHomologado')) {
     const v = Number(body.valorHomologado ?? 0)
     if (!Number.isFinite(v) || v < 0 || v > 1e12) throw new ValidationError('Valor homologado inválido')
@@ -531,6 +579,8 @@ function view(d: DbFile, userId: number): AppState {
     categorias: d.categorias,
     statuses: d.statuses,
     transicoes: d.transicoes,
+    impugnacoes: d.impugnacoes,
+    impugStatuses: d.impugStatuses,
   }
 }
 
@@ -580,6 +630,57 @@ const stamp = (e: Edital, me: UserRecord) => {
   e.v++
   e.atualizadoPor = who(me)
   e.atualizadoEm = Date.now()
+}
+
+// ---------- catálogos simples (impugnações e status de impugnação) ----------
+type ChaveItens = 'impugnacoes' | 'impugStatuses'
+
+function criarItem(admin: UserRecord, k: ChaveItens, body: any): Promise<AppState> {
+  const nome = str(body?.nome, 'Nome', true, 60)
+  const cor = cleanCor(body?.cor)
+  return mutate((d) => {
+    const me = actorIn(d, admin, true)
+    const lista = d[k]
+    if (lista.some((i) => i.nome.toLowerCase() === nome.toLowerCase())) throw new ValidationError('Já existe um item com esse nome')
+    const base = nome.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/[^A-Z0-9]+/g, '-').replace(/^-|-$/g, '') || 'ITEM'
+    let id = base
+    for (let n = 2; lista.some((i) => i.id === id); n++) id = `${base}-${n}`
+    lista.push({ id, nome, cor })
+    return view(d, me.id)
+  })
+}
+
+function editarItem(admin: UserRecord, k: ChaveItens, id: string, body: any): Promise<AppState> {
+  const nome = str(body?.nome, 'Nome', true, 60)
+  const cor = cleanCor(body?.cor)
+  return mutate((d) => {
+    const me = actorIn(d, admin, true)
+    const it = d[k].find((i) => i.id === id)
+    if (!it) throw new NotFoundError('Item não encontrado')
+    if (d[k].some((i) => i.id !== id && i.nome.toLowerCase() === nome.toLowerCase())) throw new ValidationError('Já existe um item com esse nome')
+    it.nome = nome
+    it.cor = cor
+    return view(d, me.id)
+  })
+}
+
+function excluirItem(admin: UserRecord, k: ChaveItens, id: string): Promise<AppState> {
+  return mutate((d) => {
+    const me = actorIn(d, admin, true)
+    if (!d[k].some((i) => i.id === id)) throw new NotFoundError('Item não encontrado')
+    const usos = d.editais.filter((e) => e.impugnacoes.some((i) => (k === 'impugnacoes' ? i.id : i.status) === id)).length
+    if (usos) throw new ValidationError(`Este item é usado por ${usos} edital(is). Remova-o deles antes de excluir.`)
+    d[k] = d[k].filter((i) => i.id !== id)
+    return view(d, me.id)
+  })
+}
+
+function ordenarItens(admin: UserRecord, k: ChaveItens, body: any): Promise<AppState> {
+  return mutate((d) => {
+    const me = actorIn(d, admin, true)
+    d[k] = reordenar(d[k], body?.ids)
+    return view(d, me.id)
+  })
 }
 
 // ---------- API do banco ----------
@@ -729,10 +830,11 @@ export const db = {
   // ===== editais (todos os usuários enxergam e alteram os mesmos dados) =====
   createEdital(user: UserRecord, body: any): Promise<AppState> {
     // todo edital novo começa no status inicial; valores e resultado vêm depois, pelo fluxo
-    const v = parseEdital({ mod: 0, cidade: '', portal: '', data: '', hora: '', ...body, status: 'PREP', valorGanho: 0, valorHomologado: 0, resultado: '' }, false) as EditalInput
+    const v = parseEdital({ mod: 0, cidade: '', portal: '', data: '', hora: '', ...body, impugnacoes: body?.impugnacoes ?? [], status: 'PREP', valorGanho: 0, valorHomologado: 0, resultado: '' }, false) as EditalInput
     return mutate((d) => {
       const me = actorIn(d, user)
       conferirEdital(d, v, portaisPermitidos(d, me), undefined, true)
+      v.impugnacoes = conferirImpugs(d, v.impugnacoes).map((i) => ({ id: i.id, status: '' })) // ao cadastrar ainda não há resposta
       const novo: Edital = { id: d.nextId++, retifs: [], log: [], v: 1, criadoPor: who(me), atualizadoPor: who(me), atualizadoEm: Date.now(), ...v }
       addLog(novo, me, 'criou', [])
       d.editais.push(novo)
@@ -771,8 +873,22 @@ export const db = {
         if ((t.exige === 'valorGanho' || t.exige === 'valorHomologado') && !(valor > 0)) throw new ValidationError(`Informe o valor total (${t.rotulo}).`)
         if (t.exige === 'valorGanho' || t.exige === 'valorHomologado') patch[t.exige] = valor
         if (t.resultado) patch.resultado = t.resultado
+        // impugnações: quem tem impugnação precisa responder o resultado de todas
+        if (t.exige === 'impugnacoes' && e.impugnacoes.length) {
+          const resp = body?.impugRespostas && typeof body.impugRespostas === 'object' ? body.impugRespostas : {}
+          for (const i of e.impugnacoes) {
+            if (!d.impugStatuses.some((s) => s.id === resp[i.id])) throw new ValidationError('Informe o resultado de todas as impugnações.')
+          }
+          patch.impugnacoes = e.impugnacoes.map((i) => ({ id: i.id, status: resp[i.id] as string }))
+        }
       }
+      if (patch.impugnacoes) patch.impugnacoes = conferirImpugs(d, patch.impugnacoes)
       const mudancas = diffEdital(d, e, patch)
+      if (patch.impugnacoes) {
+        const de = textoImpugs(d, e.impugnacoes)
+        const para = textoImpugs(d, patch.impugnacoes)
+        if (de !== para) mudancas.push({ campo: 'Impugnações', de, para })
+      }
       Object.assign(e, patch)
       if (mudancas.length) addLog(e, me, 'alterou', mudancas, trocouStatus ? motivo : undefined)
       stamp(e, me)
@@ -955,6 +1071,16 @@ export const db = {
       return view(d, me.id)
     })
   },
+
+  // ===== impugnações e seus status (administrador) =====
+  createImpugnacao: (admin: UserRecord, body: any) => criarItem(admin, 'impugnacoes', body),
+  updateImpugnacao: (admin: UserRecord, id: string, body: any) => editarItem(admin, 'impugnacoes', id, body),
+  deleteImpugnacao: (admin: UserRecord, id: string) => excluirItem(admin, 'impugnacoes', id),
+  reordenarImpugnacoes: (admin: UserRecord, body: any) => ordenarItens(admin, 'impugnacoes', body),
+  createImpugStatus: (admin: UserRecord, body: any) => criarItem(admin, 'impugStatuses', body),
+  updateImpugStatus: (admin: UserRecord, id: string, body: any) => editarItem(admin, 'impugStatuses', id, body),
+  deleteImpugStatus: (admin: UserRecord, id: string) => excluirItem(admin, 'impugStatuses', id),
+  reordenarImpugStatus: (admin: UserRecord, body: any) => ordenarItens(admin, 'impugStatuses', body),
 
   /** Grava de uma vez as ligações do fluxo e a posição de cada status no mapa. Só administradores. */
   salvarFluxo(admin: UserRecord, body: any): Promise<AppState> {

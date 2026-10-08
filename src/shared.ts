@@ -46,6 +46,8 @@ export interface Edital {
   valorGanho: number
   /** valor total pelo qual a licitação foi homologada (R$). 0 = ainda não homologada */
   valorHomologado: number
+  /** impugnações feitas neste edital */
+  impugnacoes: EditalImpugnacao[]
   /** portal onde a licitação acontece (a tela oferece uma lista, mas aceita qualquer nome) */
   portal: string
   /** AAAA-MM-DD ou '' (a definir) */
@@ -88,13 +90,14 @@ export interface StatusCfg {
 }
 
 /** O que o usuário precisa informar ao usar uma ligação do fluxo. */
-export type ExigeTransicao = 'nada' | 'motivo' | 'valorGanho' | 'valorHomologado'
+export type ExigeTransicao = 'nada' | 'motivo' | 'valorGanho' | 'valorHomologado' | 'impugnacoes'
 
 export const EXIGE_LABEL: Record<ExigeTransicao, string> = {
   nada: 'Nada (um clique)',
   motivo: 'Motivo (texto)',
   valorGanho: 'Valor total ganho',
   valorHomologado: 'Valor total homologado',
+  impugnacoes: 'Resultado das impugnações (só se o edital tiver)',
 }
 
 /**
@@ -111,6 +114,26 @@ export interface Transicao {
   exige: ExigeTransicao
   /** resultado que a ligação marca no edital ('' = não mexe) */
   resultado: Resultado
+}
+
+/** Impugnação cadastrada em Configurações (o administrador gerencia a lista). */
+export interface ImpugnacaoCfg {
+  id: string
+  nome: string
+  cor: string
+}
+
+/** Resultado possível de uma impugnação (ex.: Deferida, Indeferida), cadastrado em Configurações. */
+export interface ImpugStatusCfg {
+  id: string
+  nome: string
+  cor: string
+}
+
+/** Impugnação feita num edital; status = id de um ImpugStatusCfg ('' = ainda sem resposta). */
+export interface EditalImpugnacao {
+  id: string
+  status: string
 }
 
 export interface CategoriaCfg {
@@ -186,6 +209,8 @@ export interface AppState {
   portais: Portal[]
   categorias: CategoriaCfg[]
   statuses: StatusCfg[]
+  impugnacoes: ImpugnacaoCfg[]
+  impugStatuses: ImpugStatusCfg[]
   /** ligações do fluxo de status (vazio = mudança livre entre quaisquer status) */
   transicoes: Transicao[]
 }

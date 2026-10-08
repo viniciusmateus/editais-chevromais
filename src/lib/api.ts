@@ -89,12 +89,20 @@ export const api = {
   updateStatus: (id: string, v: CategoriaInput) => req<AppState>(`/api/status/${encodeURIComponent(id)}`, 'PUT', v),
   deleteStatus: (id: string) => req<AppState>(`/api/status/${encodeURIComponent(id)}`, 'DELETE'),
 
+  createImpugnacao: (v: CategoriaInput) => req<AppState>('/api/impugnacoes', 'POST', v),
+  updateImpugnacao: (id: string, v: CategoriaInput) => req<AppState>(`/api/impugnacoes/${encodeURIComponent(id)}`, 'PUT', v),
+  deleteImpugnacao: (id: string) => req<AppState>(`/api/impugnacoes/${encodeURIComponent(id)}`, 'DELETE'),
+  reordenarImpugnacoes: (ids: string[]) => req<AppState>('/api/impugnacoes/ordem', 'POST', { ids }),
+  createImpugStatus: (v: CategoriaInput) => req<AppState>('/api/impug-status', 'POST', v),
+  updateImpugStatus: (id: string, v: CategoriaInput) => req<AppState>(`/api/impug-status/${encodeURIComponent(id)}`, 'PUT', v),
+  deleteImpugStatus: (id: string) => req<AppState>(`/api/impug-status/${encodeURIComponent(id)}`, 'DELETE'),
+  reordenarImpugStatus: (ids: string[]) => req<AppState>('/api/impug-status/ordem', 'POST', { ids }),
   salvarFluxo: (v: { transicoes: Transicao[]; posicoes: Record<string, { x: number; y: number }> }) => req<AppState>('/api/fluxo', 'POST', v),
 
   // editais
   createEdital: (e: EditalInput) => req<AppState>('/api/editais', 'POST', e),
   /** `v` = versão que o usuário estava editando; se outra pessoa já alterou, a API responde 409 */
-  updateEdital: (id: number, patch: Partial<EditalInput> & { v?: number; motivo?: string; valor?: number }) => req<AppState>(`/api/editais/${id}`, 'PUT', patch),
+  updateEdital: (id: number, patch: Partial<EditalInput> & { v?: number; motivo?: string; valor?: number; impugRespostas?: Record<string, string> }) => req<AppState>(`/api/editais/${id}`, 'PUT', patch),
   deleteEditais: (ids: number[]) => req<AppState>('/api/editais/delete', 'POST', { ids }),
   addRetif: (id: number, r: { desc: string; data?: string; hora?: string }) => req<AppState>(`/api/editais/${id}/retifs`, 'POST', r),
   clearAll: () => req<AppState>('/api/editais', 'DELETE'),

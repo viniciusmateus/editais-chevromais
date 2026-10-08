@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { RESULTADOS, type CategoriaCfg, type Edital, type StatusCfg, type Transicao } from '../shared'
+import { type CategoriaCfg, type Edital, type ImpugnacaoCfg, type ImpugStatusCfg, type StatusCfg, type Transicao } from '../shared'
 import { brlFull, catInfo, fmtDate, statusInfo, todayIso } from '../lib/utils'
 
 /** 'ALL', 'RETIF' ou o id de uma categoria */
@@ -13,6 +13,8 @@ interface Props {
   categorias: CategoriaCfg[]
   statuses: StatusCfg[]
   transicoes: Transicao[]
+  impugnacoes: ImpugnacaoCfg[]
+  impugStatuses: ImpugStatusCfg[]
   counts: { all: number; retif: number; porCat: Record<string, number> }
   tab: Tab
   onTab: (t: Tab) => void
@@ -136,7 +138,7 @@ function StatusCell({ x, statuses, transicoes, onPick }: { x: Edital; statuses: 
       : statuses.filter((s) => s.id !== x.status).map((s) => ({ de: x.status, para: s.id, rotulo: s.nome, negativo: false, exige: 'nada' as const, resultado: '' as const }))
   return (
     <div className="flex flex-col items-center gap-1.5">
-      <span className="rounded-full px-2.5 py-1 font-label-sm text-label-sm font-semibold" style={{ background: `${st.cor}22`, color: st.cor }}>
+      <span className="rounded-full px-3 py-1 font-label-sm text-label-sm font-bold text-white shadow-sm" style={{ background: st.cor }}>
         {st.nome}
       </span>
       <div className="flex items-center gap-1">
@@ -203,14 +205,13 @@ export default function EditalTable(p: Props) {
               <th className="px-space-md py-2 text-right">Valor Ganho</th>
               <th className="px-space-md py-2 text-right">Valor Homologado</th>
               <th className="px-space-md py-2 text-center">Status</th>
-              <th className="px-space-md py-2 text-center">Resultado</th>
               <th className="px-space-md py-2 text-center">Ações</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-surface-container-low text-body-md">
             {slice.length === 0 && (
               <tr>
-                <td colSpan={11} className="py-8 text-center font-label-md text-label-md text-outline">
+                <td colSpan={10} className="py-8 text-center font-label-md text-label-md text-outline">
                   {p.total
                     ? 'Nenhum edital encontrado para os filtros selecionados.'
                     : 'Nenhum edital cadastrado ainda. Clique em "Novo Edital / Registro" para começar.'}
@@ -247,6 +248,26 @@ export default function EditalTable(p: Props) {
                       <span className="font-data-mono text-data-mono text-outline">{x.uasg}</span>
                       {x.portal && (
                         <span className="mt-0.5 w-fit rounded bg-surface-container px-1.5 text-[10px] font-semibold text-on-surface-variant">{x.portal}</span>
+                      )}
+                      {x.impugnacoes.length > 0 && (
+                        <div className="mt-1 flex max-w-[220px] flex-wrap gap-1 whitespace-normal">
+                          {x.impugnacoes.map((i) => {
+                            const c = p.impugnacoes.find((y) => y.id === i.id)
+                            const st = p.impugStatuses.find((y) => y.id === i.status)
+                            return (
+                              <span
+                                key={i.id}
+                                title={`${c?.nome ?? i.id} — ${st ? st.nome : 'sem resposta'}`}
+                                className="flex items-center gap-1 rounded px-1.5 text-[10px] font-semibold"
+                                style={{ background: `${c?.cor ?? '#64748b'}22`, color: c?.cor ?? '#64748b' }}
+                              >
+                                <span className="material-symbols-outlined text-[11px]">gavel</span>
+                                {c?.nome ?? i.id}
+                                <span className="h-1.5 w-1.5 rounded-full" style={{ background: st ? st.cor : '#cbd5e1' }} />
+                              </span>
+                            )
+                          })}
+                        </div>
                       )}
                     </div>
                   </td>
@@ -288,19 +309,6 @@ export default function EditalTable(p: Props) {
                   </td>
                   <td className="whitespace-nowrap px-space-md py-3 text-center">
                     <StatusCell x={x} statuses={p.statuses} transicoes={p.transicoes} onPick={(t) => p.onTransicao(x.id, t)} />
-                  </td>
-                  <td className="whitespace-nowrap px-space-md py-3 text-center">
-                    <span
-                      className={`rounded-full px-2 py-1 font-label-sm text-label-sm font-bold ${
-                        x.resultado === 'GANHAMOS'
-                          ? 'bg-green-600 text-white'
-                          : x.resultado === 'PERDEMOS'
-                            ? 'bg-red-600 text-white'
-                            : 'bg-surface-container text-on-surface-variant'
-                      }`}
-                    >
-                      {x.resultado ? RESULTADOS[x.resultado] : 'Em andamento'}
-                    </span>
                   </td>
                   <td className="whitespace-nowrap px-space-md py-3 text-center">
                     <div className="flex items-center justify-center gap-1">

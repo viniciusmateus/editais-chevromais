@@ -229,7 +229,7 @@ export function ItemForm({
 }
 
 export interface Secao {
-  id: 'cat' | 'status'
+  id: string
   menu: string
   icon: string
   titulo: string
