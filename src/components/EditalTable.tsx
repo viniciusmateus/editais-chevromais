@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { RESULTADOS, type CategoriaCfg, type Edital, type StatusCfg, type Transicao } from '../shared'
 import { brlFull, catInfo, fmtDate, statusInfo, todayIso } from '../lib/utils'
 
@@ -52,7 +53,18 @@ function DateCell({ d, hora }: { d: string; hora: string }) {
 
 /** Botão do fluxo: age direto quando só há uma opção; com várias, abre uma lista. */
 function BotaoFluxo({ itens, icone, rotuloMenu, negativo, onPick }: { itens: Transicao[]; icone: string; rotuloMenu: string; negativo?: boolean; onPick: (t: Transicao) => void }) {
-  const [pos, setPos] = useState<{ x: number; y: number } | null>(null)
+  // menu logo abaixo do botão, com a mesma largura mínima; sem espaço embaixo, abre para cima
+  const [pos, setPos] = useState<{ x: number; y: number; w: number; maxH: number } | null>(null)
+  useEffect(() => {
+    if (!pos) return
+    const fechar = () => setPos(null)
+    window.addEventListener('scroll', fechar, true)
+    window.addEventListener('resize', fechar)
+    return () => {
+      window.removeEventListener('scroll', fechar, true)
+      window.removeEventListener('resize', fechar)
+    }
+  }, [pos])
   if (itens.length === 0) return null
   const cor = negativo ? 'bg-error-container/50 text-error hover:bg-error-container' : 'bg-primary text-on-primary hover:bg-primary-hover'
   const cls = `flex items-center gap-1 rounded-lg px-2.5 py-1 font-label-sm text-label-sm font-bold ${cor}`
@@ -70,32 +82,47 @@ function BotaoFluxo({ itens, icone, rotuloMenu, negativo, onPick }: { itens: Tra
         className={cls}
         onClick={(e) => {
           const r = e.currentTarget.getBoundingClientRect()
-          setPos({ x: r.left, y: r.bottom + 4 })
+          const h = itens.length * 34 + 8
+          const abaixo = window.innerHeight - r.bottom - 8
+          const cabe = abaixo >= h || abaixo >= r.top - 8
+          const maxH = Math.max(80, cabe ? abaixo : r.top - 8)
+          setPos({
+            x: Math.max(8, Math.min(r.left, window.innerWidth - Math.max(r.width, 170) - 8)),
+            y: cabe ? r.bottom + 2 : Math.max(8, r.top - Math.min(h, maxH) - 2),
+            w: Math.max(r.width, 170),
+            maxH,
+          })
         }}
       >
         <span className="material-symbols-outlined text-[14px]">{icone}</span> {rotuloMenu}
         <span className="material-symbols-outlined text-[14px]">expand_more</span>
       </button>
-      {pos && (
-        <>
-          <div className="fixed inset-0 z-[90]" onClick={() => setPos(null)} />
-          <div className="fixed z-[91] min-w-[170px] overflow-hidden rounded-lg bg-surface-container-lowest py-1 text-left shadow-xl ring-1 ring-black/10" style={{ left: pos.x, top: pos.y }}>
-            {itens.map((t) => (
-              <button
-                key={t.para}
-                type="button"
-                className="block w-full px-3 py-1.5 text-left font-label-md text-label-md hover:bg-surface-container-low"
-                onClick={() => {
-                  setPos(null)
-                  onPick(t)
-                }}
-              >
-                {t.rotulo}
-              </button>
-            ))}
-          </div>
-        </>
-      )}
+      {pos &&
+        // fora da tabela: um ancestral com filtro/transform faria o "fixed" se posicionar errado
+        createPortal(
+          <>
+            <div className="fixed inset-0 z-[200]" onClick={() => setPos(null)} onContextMenu={() => setPos(null)} />
+            <div
+              className="fixed z-[201] overflow-hidden rounded-lg bg-surface-container-lowest py-1 text-left shadow-xl ring-1 ring-black/10"
+              style={{ left: pos.x, top: pos.y, minWidth: pos.w, maxHeight: pos.maxH, overflowY: 'auto' }}
+            >
+              {itens.map((t) => (
+                <button
+                  key={t.para}
+                  type="button"
+                  className="block w-full whitespace-nowrap px-3 py-1.5 text-left font-label-md text-label-md hover:bg-surface-container-low"
+                  onClick={() => {
+                    setPos(null)
+                    onPick(t)
+                  }}
+                >
+                  {t.rotulo}
+                </button>
+              ))}
+            </div>
+          </>,
+          document.body,
+        )}
     </>
   )
 }
@@ -169,7 +196,6 @@ export default function EditalTable(p: Props) {
               <th className="px-space-md py-2">Categoria</th>
               <th className="px-space-md py-2">Edital / UASG</th>
               <th className="px-space-md py-2">Órgão Comprador</th>
-              <th className="min-w-[220px] px-space-md py-2">Objeto Registrado</th>
               <th className="px-space-md py-2">Retificações</th>
               <th className="cursor-pointer whitespace-nowrap px-space-md py-2" onClick={p.onSort} title="Ordena por data e horário">
                 Data / Horário {p.sortAsc ? '▲' : '▼'}
@@ -184,7 +210,7 @@ export default function EditalTable(p: Props) {
           <tbody className="divide-y divide-surface-container-low text-body-md">
             {slice.length === 0 && (
               <tr>
-                <td colSpan={12} className="py-8 text-center font-label-md text-label-md text-outline">
+                <td colSpan={11} className="py-8 text-center font-label-md text-label-md text-outline">
                   {p.total
                     ? 'Nenhum edital encontrado para os filtros selecionados.'
                     : 'Nenhum edital cadastrado ainda. Clique em "Novo Edital / Registro" para começar.'}
@@ -236,7 +262,6 @@ export default function EditalTable(p: Props) {
                       </span>
                     </div>
                   </td>
-                  <td className="px-space-md py-3"><p className="line-clamp-2 max-w-[240px]" title={x.objeto}>{x.objeto}</p></td>
                   <td className="whitespace-nowrap px-space-md py-3">
                     {last ? (
                       <span className={`rounded px-1.5 py-0.5 font-label-sm text-[11px] font-bold ${last.dias > 0 ? 'bg-error text-white' : 'bg-[#e0f2fe] text-[#0369a1]'}`}>

@@ -168,7 +168,7 @@ export default function Dashboard({ onLogout }: { onLogout: () => void }) {
         if (fCat !== 'ALL' && x.cat !== fCat) return false
         if (fStatus !== 'ALL' && x.status !== fStatus) return false
         if (!inPeriod(x, fPer)) return false
-        if (needle && ![x.num, x.orgao, x.objeto, x.uasg, x.cidade, x.uf, x.portal].some((v) => v.toLowerCase().includes(needle))) return false
+        if (needle && ![x.num, x.orgao, x.uasg, x.cidade, x.uf, x.portal].some((v) => v.toLowerCase().includes(needle))) return false
         return true
       })
       .sort((a, b) => {

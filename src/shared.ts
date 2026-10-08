@@ -42,7 +42,6 @@ export interface Edital {
   orgao: string
   cidade: string
   uf: string
-  objeto: string
   /** valor ganho na licitação (R$, com centavos). 0 = ainda não ganhou / não informado */
   valorGanho: number
   /** valor total pelo qual a licitação foi homologada (R$). 0 = ainda não homologada */
@@ -129,7 +128,6 @@ export const CAMPOS_PORTAL = [
   { key: 'orgao', label: 'Órgão Comprador' },
   { key: 'cidade', label: 'Cidade' },
   { key: 'uf', label: 'UF' },
-  { key: 'objeto', label: 'Objeto' },
   { key: 'data', label: 'Data limite' },
   { key: 'hora', label: 'Horário' },
   { key: 'valorGanho', label: 'Valor ganho' },
@@ -148,7 +146,6 @@ export const REGRAS_PADRAO: RegrasCampos = {
   orgao: 'obrigatorio',
   cidade: 'opcional',
   uf: 'obrigatorio',
-  objeto: 'obrigatorio',
   data: 'opcional',
   hora: 'opcional',
   valorGanho: 'opcional',

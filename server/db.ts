@@ -241,8 +241,8 @@ function normalize(raw: any): DbFile {
   if (!raw || typeof raw !== 'object') return base
 
   const editais: Edital[] = (Array.isArray(raw.editais) ? raw.editais : []).map((e: any) => {
-    // o antigo "valor estimado" (campo `valor`) saiu do sistema: não é copiado para o banco novo
-    const { valor: _valorEstimado, ...resto } = e
+    // campos que saíram do sistema (o antigo "valor estimado" e o "objeto") não são copiados: a limpeza do banco acontece na próxima gravação
+    const { valor: _valorEstimado, objeto: _objeto, ...resto } = e
     const ganho = Number(e.valorGanho)
     return {
       ...resto,
@@ -334,10 +334,12 @@ function normalize(raw: any): DbFile {
 async function load(): Promise<DbFile> {
   if (cache) return cache
   await fs.mkdir(DATA_DIR, { recursive: true })
+  let limpar = false
   try {
     const text = await fs.readFile(DB_FILE, 'utf8')
     try {
       cache = normalize(JSON.parse(text))
+      limpar = /"objeto"\s*:/.test(text)
     } catch {
       // arquivo corrompido: guarda uma cópia e começa de novo (nunca apaga o original)
       const saved = path.join(DATA_DIR, `db.corrompido-${Date.now()}.json`)
@@ -348,6 +350,11 @@ async function load(): Promise<DbFile> {
   } catch (e: any) {
     if (e.code !== 'ENOENT') throw e
     cache = emptyDb()
+  }
+  // limpeza: o campo "objeto" saiu do sistema; regrava o banco sem ele (a cópia anterior fica em db.bak.json)
+  if (limpar) {
+    await persist(cache)
+    console.log('[db]  campo "objeto" removido do banco (cópia anterior em db.bak.json)')
   }
   return cache
 }
@@ -444,7 +451,6 @@ function parseEdital(body: any, partial: boolean): Partial<EditalInput> {
   if (has('orgao')) out.orgao = str(body.orgao, 'Órgão comprador', false, 200)
   if (has('cidade')) out.cidade = str(body.cidade, 'Cidade', false, 80)
   if (has('uf')) out.uf = str(body.uf, 'UF', false, 2).toUpperCase()
-  if (has('objeto')) out.objeto = str(body.objeto, 'Objeto', false, 2000)
   if (has('valorGanho')) {
     const v = Number(body.valorGanho ?? 0)
     if (!Number.isFinite(v) || v < 0 || v > 1e12) throw new ValidationError('Valor ganho inválido')
@@ -539,7 +545,7 @@ function actorIn(d: DbFile, user: UserRecord, needAdmin = false): UserRecord {
 // ----- histórico fixo -----
 const CAMPOS: Array<[keyof EditalInput, string]> = [
   ['cat', 'Categoria'], ['num', 'Nº do edital'], ['uasg', 'UASG / Nº de identificação'], ['portal', 'Portal'],
-  ['orgao', 'Órgão comprador'], ['cidade', 'Cidade'], ['uf', 'UF'], ['objeto', 'Objeto'], ['mod', 'Modalidade'],
+  ['orgao', 'Órgão comprador'], ['cidade', 'Cidade'], ['uf', 'UF'], ['mod', 'Modalidade'],
   ['data', 'Data limite'], ['hora', 'Horário'], ['status', 'Status'], ['resultado', 'Resultado'], ['valorGanho', 'Valor ganho'],
   ['valorHomologado', 'Valor homologado'],
 ]

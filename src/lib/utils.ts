@@ -77,9 +77,9 @@ export function inPeriod(e: Edital, p: Periodo): boolean {
 /** Baixa um CSV (separador ;, UTF-8 com BOM) que abre direto no Excel. */
 export function exportCsv(list: Edital[], categorias: CategoriaCfg[], statuses: StatusCfg[]): void {
   const q = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`
-  const head = ['Categoria', 'Edital', 'UASG / ID', 'Portal', 'Órgão', 'Cidade', 'UF', 'Objeto', 'Modalidade', 'Valor ganho', 'Valor homologado', 'Data limite', 'Horário', 'Status', 'Resultado', 'Retificações']
+  const head = ['Categoria', 'Edital', 'UASG / ID', 'Portal', 'Órgão', 'Cidade', 'UF', 'Modalidade', 'Valor ganho', 'Valor homologado', 'Data limite', 'Horário', 'Status', 'Resultado', 'Retificações']
   const rows = list.map((x) =>
-    [catInfo(categorias, x.cat).nome, x.num, x.uasg, x.portal, x.orgao, x.cidade, x.uf, x.objeto, MODALIDADES[x.mod], x.valorGanho.toFixed(2).replace('.', ','), x.valorHomologado.toFixed(2).replace('.', ','), fmtDate(x.data), x.hora, statusInfo(statuses, x.status).nome, x.resultado ? RESULTADOS[x.resultado] : 'Em andamento', x.retifs.length]
+    [catInfo(categorias, x.cat).nome, x.num, x.uasg, x.portal, x.orgao, x.cidade, x.uf, MODALIDADES[x.mod], x.valorGanho.toFixed(2).replace('.', ','), x.valorHomologado.toFixed(2).replace('.', ','), fmtDate(x.data), x.hora, statusInfo(statuses, x.status).nome, x.resultado ? RESULTADOS[x.resultado] : 'Em andamento', x.retifs.length]
       .map(q)
       .join(';'),
   )

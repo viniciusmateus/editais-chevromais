@@ -130,7 +130,7 @@ export function PortaisModal({
     <Modal title="Portais" icon="language" wide onClose={onClose}>
       <p className="mb-space-md text-body-sm text-on-surface-variant">
         Cadastre os portais onde as licitações acontecem e defina quais campos cada um exige no cadastro do edital. Editais sem portal usam as regras
-        padrão (Nº, UASG, Órgão, UF e Objeto obrigatórios).
+        padrão (Nº, UASG, Órgão e UF obrigatórios).
       </p>
       <div className="flex flex-col divide-y divide-surface-container-low rounded-lg border border-surface-container">
         {portais.length === 0 && <div className="p-space-md text-center text-outline">Nenhum portal cadastrado.</div>}

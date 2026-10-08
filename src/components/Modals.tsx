@@ -178,7 +178,6 @@ export function EditalModal({
     orgao: initial?.orgao ?? '',
     cidade: initial?.cidade ?? '',
     uf: initial?.uf ?? '',
-    objeto: initial?.objeto ?? '',
     valorGanho: moneyToInput(initial?.valorGanho ?? 0),
     valorHomologado: moneyToInput(initial?.valorHomologado ?? 0),
     portal: initial?.portal ?? '',
@@ -267,11 +266,6 @@ export function EditalModal({
         {show('uf') && (
           <Field label={lbl('UF', 'uf')}>
             <input required={req('uf')} maxLength={2} className={`${input} uppercase`} placeholder="PR" value={f.uf} onChange={(e) => set('uf', e.target.value)} />
-          </Field>
-        )}
-        {show('objeto') && (
-          <Field label={lbl('Objeto', 'objeto')} className="col-span-2">
-            <textarea required={req('objeto')} rows={3} className={`${input} h-auto py-2`} value={f.objeto} onChange={(e) => set('objeto', e.target.value)} />
           </Field>
         )}
         {show('data') && (
@@ -415,7 +409,7 @@ export function HistModal({ edital, onClose }: { edital: Edital; onClose: () => 
   return (
     <Modal title={`Histórico — ${edital.num}`} icon="history" onClose={onClose}>
       <p className="text-body-sm text-on-surface-variant">
-        {edital.orgao} • {edital.objeto}
+        {edital.orgao}
       </p>
       <p className="mb-space-md mt-1 text-[11px] text-outline">
         Cadastrado por {edital.criadoPor || '—'}
