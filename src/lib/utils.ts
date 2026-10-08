@@ -1,4 +1,4 @@
-import { MODALIDADES, REGIOES, REGRAS_PADRAO, RESULTADOS, type CategoriaCfg, type StatusCfg, type Edital, type Portal, type RegrasCampos, type Transicao } from '../shared'
+import { MODALIDADES, REGIOES, REGRAS_PADRAO, RESULTADOS, type CategoriaCfg, type StatusCfg, type Edital, type Portal, type RegrasCampos, type Transicao, type EmpresaCfg } from '../shared'
 
 export type Periodo = 'all' | 'today' | '7days' | 'month'
 
@@ -108,11 +108,11 @@ export function inPeriod(e: Edital, p: Periodo): boolean {
 }
 
 /** Baixa um CSV (separador ;, UTF-8 com BOM) que abre direto no Excel. */
-export function exportCsv(list: Edital[], categorias: CategoriaCfg[], statuses: StatusCfg[]): void {
+export function exportCsv(list: Edital[], categorias: CategoriaCfg[], statuses: StatusCfg[], empresas: EmpresaCfg[]): void {
   const q = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`
-  const head = ['Categoria', 'Edital', 'UASG / ID', 'Portal', 'Órgão', 'Cidade', 'UF', 'Modalidade', 'Valor ganho', 'Valor homologado', 'Data limite', 'Horário', 'Status', 'Resultado', 'Retificações']
+  const head = ['Categoria', 'Empresa', 'Edital', 'UASG / ID', 'Portal', 'Órgão', 'Cidade', 'UF', 'Modalidade', 'Valor ganho', 'Valor homologado', 'Data limite', 'Horário', 'Status', 'Resultado', 'Retificações']
   const rows = list.map((x) =>
-    [catInfo(categorias, x.cat).nome, x.num, x.uasg, x.portal, x.orgao, x.cidade, x.uf, MODALIDADES[x.mod], x.valorGanho.toFixed(2).replace('.', ','), x.valorHomologado.toFixed(2).replace('.', ','), fmtDate(x.data), x.hora, statusInfo(statuses, x.status).nome, x.resultado ? RESULTADOS[x.resultado] : 'Em andamento', x.retifs.length]
+    [catInfo(categorias, x.cat).nome, empresas.find((e) => e.id === x.empresa)?.nome ?? '', x.num, x.uasg, x.portal, x.orgao, x.cidade, x.uf, MODALIDADES[x.mod], x.valorGanho.toFixed(2).replace('.', ','), x.valorHomologado.toFixed(2).replace('.', ','), fmtDate(x.data), x.hora, statusInfo(statuses, x.status).nome, x.resultado ? RESULTADOS[x.resultado] : 'Em andamento', x.retifs.length]
       .map(q)
       .join(';'),
   )

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { STATUS_FIXOS, type CategoriaCfg, type Edital, type ImpugnacaoCfg, type ImpugStatusCfg, type PerfilCfg, type PublicUser, type StatusCfg, type Transicao } from '../shared'
+import { STATUS_FIXOS, type CategoriaCfg, type Edital, type EmpresaCfg, type ImpugnacaoCfg, type ImpugStatusCfg, type PerfilCfg, type PublicUser, type StatusCfg, type Transicao } from '../shared'
 import type { CategoriaInput } from '../lib/api'
 import { ItemForm, ListaOrdenavel, type CfgMode, type Item, type Secao } from './Admin'
 import FluxoEditor from './FluxoEditor'
@@ -19,6 +19,8 @@ interface Props {
   statuses: StatusCfg[]
   impugnacoes: ImpugnacaoCfg[]
   impugStatuses: ImpugStatusCfg[]
+  empresas: EmpresaCfg[]
+  acoesEmpresa: AcoesLista
   transicoes: Transicao[]
   perfis: PerfilCfg[]
   users: PublicUser[]
@@ -31,7 +33,7 @@ interface Props {
   onSaveFluxo: (v: { transicoes: Transicao[]; posicoes: Record<string, { x: number; y: number }> }) => Promise<boolean>
 }
 
-type Aba = 'cat' | 'status' | 'fluxo' | 'impug' | 'perfis'
+type Aba = 'cat' | 'status' | 'fluxo' | 'impug' | 'perfis' | 'empresas'
 
 /** Uma lista (com botão de novo, edição e arrastar para ordenar) que alterna entre listagem e formulário na própria página. */
 function ListaConfig({ secao }: { secao: Secao }) {
@@ -103,6 +105,20 @@ export default function ConfigPage(p: Props) {
     fixos: STATUS_FIXOS,
     ...p.acoesStatus,
   }
+  const empresa: Secao = {
+    id: 'empresas',
+    menu: 'Empresas',
+    icon: 'business',
+    titulo: 'Empresas',
+    descricao:
+      'Cadastre as empresas que participam das licitações. No cadastro e na edição do edital você escolhe qual empresa está participando. Uma empresa só pode ser excluída quando nenhum edital a usa. Em Portais dá para tornar o campo obrigatório por portal.',
+    novo: 'Nova empresa',
+    rotulo: 'da empresa',
+    placeholder: 'Ex.: Chevomais Comércio de Pneus Ltda',
+    itens: p.empresas,
+    usos: (id) => p.editais.filter((e) => e.empresa === id).length,
+    ...p.acoesEmpresa,
+  }
   const impug: Secao = {
     id: 'impug',
     menu: 'Impugnações',
@@ -134,6 +150,7 @@ export default function ConfigPage(p: Props) {
 
   const abas: Array<{ id: Aba; icon: string; label: string }> = [
     { id: 'cat', icon: 'category', label: 'Categorias' },
+    { id: 'empresas', icon: 'business', label: 'Empresas' },
     { id: 'status', icon: 'flag', label: 'Status' },
     { id: 'fluxo', icon: 'account_tree', label: 'Fluxo dos status' },
     { id: 'impug', icon: 'gavel', label: 'Impugnações' },
@@ -164,6 +181,7 @@ export default function ConfigPage(p: Props) {
       </nav>
 
       {aba === 'cat' && <ListaConfig key="cat" secao={cat} />}
+      {aba === 'empresas' && <ListaConfig key="empresas" secao={empresa} />}
       {aba === 'status' && <ListaConfig key="status" secao={status} />}
       {aba === 'fluxo' && <FluxoEditor statuses={p.statuses} transicoes={p.transicoes} onSave={p.onSaveFluxo} />}
       {aba === 'perfis' && <PerfisPanel perfis={p.perfis} users={p.users} acoes={p.acoesPerfil} />}

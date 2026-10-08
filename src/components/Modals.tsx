@@ -13,6 +13,7 @@ import {
   type StatusCfg,
   type Transicao,
   type ImpugnacaoCfg,
+  type EmpresaCfg,
   type CampoBase,
   type PerfilCfg,
   type Permissoes,
@@ -212,6 +213,7 @@ export function EditalModal({
   categorias,
   portais,
   statuses,
+  empresas,
   impugnacoes,
   impugStatuses,
   perms,
@@ -225,6 +227,7 @@ export function EditalModal({
   categorias: CategoriaCfg[]
   portais: Portal[]
   statuses: StatusCfg[]
+  empresas: EmpresaCfg[]
   impugnacoes: ImpugnacaoCfg[]
   impugStatuses: ImpugStatusCfg[]
   /** o que o perfil do usuário pode fazer (campos base editáveis, excluir) */
@@ -251,6 +254,7 @@ export function EditalModal({
     valorGanho: moneyToInput(initial?.valorGanho ?? 0),
     valorHomologado: moneyToInput(initial?.valorHomologado ?? 0),
     portal: initial?.portal ?? '',
+    empresa: initial?.empresa ?? '',
     data: initial?.data ?? '',
     hora: initial?.hora ?? '',
     status: initial?.status ?? 'PREP',
@@ -321,7 +325,7 @@ export function EditalModal({
         )}
 
         {secao('Identificação')}
-        <Field label={rotulo('Portal da licitação', 'portal')} className="col-span-12 md:col-span-4">
+        <Field label={rotulo('Portal da licitação', 'portal')} className="col-span-12 md:col-span-3">
           <select disabled={trava('portal')} className={input} value={f.portal} onChange={(e) => set('portal', e.target.value)}>
             <option value="">Não informado</option>
             {portalOrfao && <option value={f.portal}>{f.portal} (não cadastrado)</option>}
@@ -331,7 +335,18 @@ export function EditalModal({
           </select>
           <span className="text-[11px] text-outline">Os campos mudam conforme o portal. * = obrigatório.</span>
         </Field>
-        <Field label={rotulo('Categoria *', 'cat')} className="col-span-12 md:col-span-4">
+        {show('empresa') && (
+          <Field label={rotulo(lbl('Empresa', 'empresa'), 'empresa')} className="col-span-12 md:col-span-3">
+            <select required={req('empresa')} disabled={trava('empresa')} className={input} value={f.empresa} onChange={(e) => set('empresa', e.target.value)}>
+              <option value="">{empresas.length === 0 ? 'Nenhuma cadastrada' : 'Selecione a empresa…'}</option>
+              {empresas.map((x) => (
+                <option key={x.id} value={x.id}>{x.nome}</option>
+              ))}
+            </select>
+            {empresas.length === 0 && <span className="text-[11px] text-outline">Cadastre em Configurações → Empresas.</span>}
+          </Field>
+        )}
+        <Field label={rotulo('Categoria *', 'cat')} className="col-span-12 md:col-span-3">
           <select required disabled={trava('cat')} className={input} value={f.cat} onChange={(e) => set('cat', e.target.value)}>
             <option value="">Selecione a categoria…</option>
             {categorias.map((c) => (
@@ -340,7 +355,7 @@ export function EditalModal({
           </select>
         </Field>
         {show('mod') && (
-          <Field label={rotulo('Modalidade', 'mod')} className="col-span-12 md:col-span-4">
+          <Field label={rotulo('Modalidade', 'mod')} className="col-span-12 md:col-span-3">
             <select disabled={trava('mod')} className={input} value={f.mod} onChange={(e) => set('mod', Number(e.target.value) as Modalidade)}>
               {MODALIDADES.map((m, i) => (
                 <option key={m} value={i}>{m}</option>

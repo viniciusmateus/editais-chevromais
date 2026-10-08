@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { type CategoriaCfg, type Edital, type ImpugnacaoCfg, type ImpugStatusCfg, type StatusCfg, type Transicao } from '../shared'
+import { type CategoriaCfg, type Edital, type EmpresaCfg, type ImpugnacaoCfg, type ImpugStatusCfg, type StatusCfg, type Transicao } from '../shared'
 import { brlFull, catInfo, diasAte, fmtDate, statusInfo } from '../lib/utils'
 
 /** 'ALL', 'RETIF' ou o id de uma categoria */
@@ -15,6 +15,7 @@ interface Props {
   transicoes: Transicao[]
   impugnacoes: ImpugnacaoCfg[]
   impugStatuses: ImpugStatusCfg[]
+  empresas: EmpresaCfg[]
   counts: { all: number; retif: number; porCat: Record<string, number> }
   tab: Tab
   onTab: (t: Tab) => void
@@ -302,6 +303,12 @@ export default function EditalTable(p: Props) {
                       <span className="font-label-md text-label-md font-bold text-primary">{x.num || `#${x.id}`}</span>
                       {x.uasg && <span className="font-data-mono text-data-mono text-outline">{x.uasg}</span>}
                       <div className="flex flex-wrap gap-1">
+                        {x.empresa && (
+                          <span className="flex items-center gap-0.5 rounded bg-primary/10 px-1.5 text-[10px] font-semibold text-primary" title="Empresa">
+                            <span className="material-symbols-outlined text-[11px]">business</span>
+                            {p.empresas.find((e) => e.id === x.empresa)?.nome ?? x.empresa}
+                          </span>
+                        )}
                         {x.portal && <span className="rounded bg-surface-container px-1.5 text-[10px] font-semibold text-on-surface-variant">{x.portal}</span>}
                         {last && (
                           <button

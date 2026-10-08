@@ -48,6 +48,8 @@ export interface Edital {
   valorHomologado: number
   /** impugnações feitas neste edital */
   impugnacoes: EditalImpugnacao[]
+  /** empresa que participa da licitação: id de uma EmpresaCfg ('' = não informada) */
+  empresa: string
   /** portal onde a licitação acontece (a tela oferece uma lista, mas aceita qualquer nome) */
   portal: string
   /** AAAA-MM-DD ou '' (a definir) */
@@ -73,6 +75,7 @@ export type EditalInput = Omit<Edital, 'id' | 'retifs' | 'log' | 'v' | 'criadoPo
 /** Campos "dados base" do edital que um perfil pode ou não editar. */
 export const CAMPOS_BASE = [
   { key: 'portal', label: 'Portal' },
+  { key: 'empresa', label: 'Empresa' },
   { key: 'cat', label: 'Categoria' },
   { key: 'mod', label: 'Modalidade' },
   { key: 'num', label: 'Nº do edital' },
@@ -157,6 +160,13 @@ export interface ImpugnacaoCfg {
   cor: string
 }
 
+/** Empresa cadastrada em Configurações (a que participa das licitações). */
+export interface EmpresaCfg {
+  id: string
+  nome: string
+  cor: string
+}
+
 /** Resultado possível de uma impugnação (ex.: Deferida, Indeferida), cadastrado em Configurações. */
 export interface ImpugStatusCfg {
   id: string
@@ -182,6 +192,7 @@ export const CAMPOS_PORTAL = [
   { key: 'mod', label: 'Modalidade', semObrigatorio: true },
   { key: 'num', label: 'Nº do Edital' },
   { key: 'uasg', label: 'UASG / Nº de identificação' },
+  { key: 'empresa', label: 'Empresa' },
   { key: 'orgao', label: 'Órgão Comprador' },
   { key: 'cidade', label: 'Cidade' },
   { key: 'uf', label: 'UF' },
@@ -201,6 +212,7 @@ export const REGRAS_PADRAO: RegrasCampos = {
   uasg: 'obrigatorio',
   orgao: 'obrigatorio',
   cidade: 'opcional',
+  empresa: 'opcional',
   uf: 'obrigatorio',
   data: 'opcional',
   hora: 'opcional',
@@ -243,6 +255,7 @@ export interface AppState {
   statuses: StatusCfg[]
   impugnacoes: ImpugnacaoCfg[]
   impugStatuses: ImpugStatusCfg[]
+  empresas: EmpresaCfg[]
   /** perfis de permissão (só vem preenchido para administradores) */
   perfis: PerfilCfg[]
   /** ligações do fluxo de status (vazio = mudança livre entre quaisquer status) */

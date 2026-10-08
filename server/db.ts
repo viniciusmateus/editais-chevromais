@@ -47,6 +47,7 @@ import {
   type StatusCfg,
   type StatusKey,
   type ImpugnacaoCfg,
+  type EmpresaCfg,
   type PerfilCfg,
   type Permissoes,
   type CampoBase,
@@ -86,6 +87,9 @@ interface DbFile {
   statuses: StatusCfg[]
   impugnacoes: ImpugnacaoCfg[]
   impugStatuses: ImpugStatusCfg[]
+  empresas: EmpresaCfg[]
+  /** 2 = perfis já ganharam o campo Empresa */
+  perfisVersao: number
   transicoes: Transicao[]
   legacy?: { nome: string; cargo: string }
 }
@@ -127,6 +131,8 @@ const emptyDb = (): DbFile => ({
   transicoes: [],
   impugnacoes: [],
   impugStatuses: [],
+  empresas: [],
+  perfisVersao: 2,
 })
 
 let cache: DbFile | null = null
@@ -337,6 +343,7 @@ function normalize(raw: any): DbFile {
       log: Array.isArray(e.log) ? e.log : [],
       valorGanho: Number.isFinite(ganho) && ganho > 0 ? ganho : 0,
       impugnacoes: lerImpugsDoEdital(e.impugnacoes),
+      empresa: typeof e.empresa === 'string' ? e.empresa : '',
       valorHomologado: Number.isFinite(Number(e.valorHomologado)) && Number(e.valorHomologado) > 0 ? Number(e.valorHomologado) : 0,
     }
   })
@@ -346,6 +353,11 @@ function normalize(raw: any): DbFile {
   const perfis: PerfilCfg[] = (Array.isArray(raw.perfis) ? raw.perfis : [])
     .filter((p: any) => p && Number.isInteger(p.id) && typeof p.nome === 'string' && p.nome)
     .map((p: any) => ({ id: p.id, nome: p.nome, excluir: p.excluir === true, campos: lerCamposBase(p.campos) }))
+  if (Array.isArray(raw.perfis) && (Number(raw.perfisVersao) || 1) < 2) {
+    for (const p of perfis) {
+      if (!p.campos.includes('empresa') && CAMPOS_BASE.every((c) => c.key === 'empresa' || p.campos.includes(c.key))) p.campos = lerCamposBase([...p.campos, 'empresa'])
+    }
+  }
   let nextPerfilId = Math.max(Number(raw.nextPerfilId) || 1, ...perfis.map((p) => p.id + 1))
   if (!Array.isArray(raw.perfis)) {
     perfis.push(perfilPadrao(nextPerfilId))
@@ -406,6 +418,7 @@ function normalize(raw: any): DbFile {
       .map((i: any) => ({ id: i.id, nome: i.nome, cor: COR_RE.test(i.cor) ? i.cor : '#64748b' }))
   const impugnacoes: ImpugnacaoCfg[] = lerItens(raw.impugnacoes)
   const impugStatuses: ImpugStatusCfg[] = lerItens(raw.impugStatuses)
+  const empresas: EmpresaCfg[] = lerItens(raw.empresas)
 
   const transicoes = Array.isArray(raw.transicoes) ? lerTransicoes(raw.transicoes, statuses) : fluxoInicial(statuses)
 
@@ -415,6 +428,8 @@ function normalize(raw: any): DbFile {
     statuses,
     impugnacoes,
     impugStatuses,
+    empresas,
+    perfisVersao: 2,
     transicoes,
     nextPortalId,
     nextPerfilId,
@@ -570,6 +585,7 @@ function parseEdital(body: any, partial: boolean): Partial<EditalInput> {
     out.valorHomologado = Math.round(v * 100) / 100
   }
   if (has('portal')) out.portal = str(body.portal, 'Portal', false, 60)
+  if (has('empresa')) out.empresa = str(body.empresa, 'Empresa', false, 60)
   if (has('data')) {
     const d = str(body.data, 'Data', false, 10)
     if (d && !isoValida(d)) throw new ValidationError('Data inválida')
@@ -609,6 +625,7 @@ const enxerga = (perm: Set<string> | null, e: Pick<Edital, 'portal'>) => !perm |
  */
 function conferirEdital(d: DbFile, v: EditalInput, perm: Set<string> | null, portalAnterior?: string, criando = false): void {
   if (!d.categorias.some((c) => c.id === v.cat)) throw new ValidationError('Categoria inválida: escolha uma categoria cadastrada')
+  if (v.empresa && !d.empresas.some((x) => x.id === v.empresa)) throw new ValidationError('Empresa inválida: escolha uma empresa cadastrada')
   if (!d.statuses.some((s) => s.id === v.status)) throw new ValidationError('Status inválido')
   if (v.portal && v.portal !== portalAnterior) {
     if (!d.portais.some((p) => p.nome === v.portal)) throw new ValidationError('Portal não cadastrado. Cadastre-o no painel Portais.')
@@ -642,6 +659,7 @@ function view(d: DbFile, userId: number): AppState {
     transicoes: d.transicoes,
     impugnacoes: d.impugnacoes,
     impugStatuses: d.impugStatuses,
+    empresas: d.empresas,
   }
 }
 
@@ -655,7 +673,7 @@ function actorIn(d: DbFile, user: UserRecord, needAdmin = false): UserRecord {
 
 // ----- histórico fixo -----
 const CAMPOS: Array<[keyof EditalInput, string]> = [
-  ['cat', 'Categoria'], ['num', 'Nº do edital'], ['uasg', 'UASG / Nº de identificação'], ['portal', 'Portal'],
+  ['cat', 'Categoria'], ['empresa', 'Empresa'], ['num', 'Nº do edital'], ['uasg', 'UASG / Nº de identificação'], ['portal', 'Portal'],
   ['orgao', 'Órgão comprador'], ['cidade', 'Cidade'], ['uf', 'UF'], ['mod', 'Modalidade'],
   ['data', 'Data limite'], ['hora', 'Horário'], ['status', 'Status'], ['resultado', 'Resultado'], ['valorGanho', 'Valor ganho'],
   ['valorHomologado', 'Valor homologado'],
@@ -666,6 +684,7 @@ function mostra(d: DbFile, k: keyof EditalInput, v: any): string {
   if (k === 'status') return d.statuses.find((s) => s.id === v)?.nome ?? String(v)
   if (k === 'resultado') return v ? RESULTADOS[v as 'GANHAMOS' | 'PERDEMOS'] : 'Em andamento'
   if (k === 'cat') return d.categorias.find((c) => c.id === v)?.nome ?? String(v)
+  if (k === 'empresa') return v ? (d.empresas.find((x) => x.id === v)?.nome ?? String(v)) : '—'
   if (k === 'valorGanho' || k === 'valorHomologado') return v ? BRL.format(v) : '—'
   if (k === 'data') return v ? String(v).split('-').reverse().join('/') : 'A definir'
   if (k === 'hora') return v || '—'
@@ -694,7 +713,7 @@ const stamp = (e: Edital, me: UserRecord) => {
 }
 
 // ---------- catálogos simples (impugnações e status de impugnação) ----------
-type ChaveItens = 'impugnacoes' | 'impugStatuses'
+type ChaveItens = 'impugnacoes' | 'impugStatuses' | 'empresas'
 
 function criarItem(admin: UserRecord, k: ChaveItens, body: any): Promise<AppState> {
   const nome = str(body?.nome, 'Nome', true, 60)
@@ -729,7 +748,7 @@ function excluirItem(admin: UserRecord, k: ChaveItens, id: string): Promise<AppS
   return mutate((d) => {
     const me = actorIn(d, admin, true)
     if (!d[k].some((i) => i.id === id)) throw new NotFoundError('Item não encontrado')
-    const usos = d.editais.filter((e) => e.impugnacoes.some((i) => (k === 'impugnacoes' ? i.id : i.status) === id)).length
+    const usos = d.editais.filter((e) => (k === 'empresas' ? e.empresa === id : e.impugnacoes.some((i) => (k === 'impugnacoes' ? i.id : i.status) === id))).length
     if (usos) throw new ValidationError(`Este item é usado por ${usos} edital(is). Remova-o deles antes de excluir.`)
     d[k] = d[k].filter((i) => i.id !== id)
     return view(d, me.id)
@@ -1181,6 +1200,10 @@ export const db = {
   updateImpugnacao: (admin: UserRecord, id: string, body: any) => editarItem(admin, 'impugnacoes', id, body),
   deleteImpugnacao: (admin: UserRecord, id: string) => excluirItem(admin, 'impugnacoes', id),
   reordenarImpugnacoes: (admin: UserRecord, body: any) => ordenarItens(admin, 'impugnacoes', body),
+  createEmpresa: (admin: UserRecord, body: any) => criarItem(admin, 'empresas', body),
+  updateEmpresa: (admin: UserRecord, id: string, body: any) => editarItem(admin, 'empresas', id, body),
+  deleteEmpresa: (admin: UserRecord, id: string) => excluirItem(admin, 'empresas', id),
+  reordenarEmpresas: (admin: UserRecord, body: any) => ordenarItens(admin, 'empresas', body),
   createImpugStatus: (admin: UserRecord, body: any) => criarItem(admin, 'impugStatuses', body),
   updateImpugStatus: (admin: UserRecord, id: string, body: any) => editarItem(admin, 'impugStatuses', id, body),
   deleteImpugStatus: (admin: UserRecord, id: string) => excluirItem(admin, 'impugStatuses', id),

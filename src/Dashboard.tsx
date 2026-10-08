@@ -335,6 +335,16 @@ export default function Dashboard({ onLogout }: { onLogout: () => void }) {
                 statuses={state.statuses}
                 impugnacoes={state.impugnacoes}
                 impugStatuses={state.impugStatuses}
+                empresas={state.empresas}
+                acoesEmpresa={{
+                  onCreate: (v) => act(() => api.createEmpresa(v), 'Empresa criada.'),
+                  onUpdate: (id, v) => act(() => api.updateEmpresa(id, v), 'Empresa atualizada.'),
+                  onDelete: (i, usos) => {
+                    if (usos) return notify(`A empresa ${i.nome} é usada por ${usos} edital(is). Mude a empresa deles antes de excluí-la.`, true)
+                    if (confirm(`Excluir a empresa ${i.nome}?`)) void act(() => api.deleteEmpresa(i.id), 'Empresa excluída.')
+                  },
+                  onReorder: (ids) => act(() => api.reordenarEmpresas(ids)),
+                }}
                 transicoes={state.transicoes}
                 perfis={state.perfis}
                 users={state.users}
@@ -401,7 +411,7 @@ export default function Dashboard({ onLogout }: { onLogout: () => void }) {
               <div className="flex flex-wrap items-center gap-space-sm">
                 <button
                   type="button"
-                  onClick={() => (filtered.length ? exportCsv(filtered, state.categorias, state.statuses) : notify('Nada para exportar.', true))}
+                  onClick={() => (filtered.length ? exportCsv(filtered, state.categorias, state.statuses, state.empresas) : notify('Nada para exportar.', true))}
                   className="flex items-center gap-space-xs rounded-lg bg-surface-container-low px-space-md py-2 font-label-md text-label-md text-primary transition-colors hover:bg-surface-container"
                 >
                   <span className="material-symbols-outlined text-[18px]">download</span> Exportar CSV
@@ -480,10 +490,11 @@ export default function Dashboard({ onLogout }: { onLogout: () => void }) {
                 transicoes={state.transicoes}
                 impugnacoes={state.impugnacoes}
                 impugStatuses={state.impugStatuses}
+                empresas={state.empresas}
                 onRetif={(id) => setModal({ type: 'retif', id })}
                 onHist={(id) => setModal({ type: 'hist', id })}
                 onEdit={(id) => setModal({ type: 'edital', id, v: editais.find((x) => x.id === id)?.v })}
-                onExportSel={() => (selectedEditais.length ? exportCsv(selectedEditais, state.categorias, state.statuses) : notify('Nenhum edital marcado.', true))}
+                onExportSel={() => (selectedEditais.length ? exportCsv(selectedEditais, state.categorias, state.statuses, state.empresas) : notify('Nenhum edital marcado.', true))}
               />
             </div>
               </>
@@ -510,6 +521,7 @@ export default function Dashboard({ onLogout }: { onLogout: () => void }) {
           categorias={state.categorias}
           portais={state.portais}
           statuses={state.statuses}
+          empresas={state.empresas}
           impugnacoes={state.impugnacoes}
           impugStatuses={state.impugStatuses}
           perms={me.perms}
@@ -562,7 +574,7 @@ export default function Dashboard({ onLogout }: { onLogout: () => void }) {
           editais={editais}
           statuses={state.statuses}
           onClose={closeModal}
-          onExport={() => (editais.length ? exportCsv(editais, state.categorias, state.statuses) : notify('Nada para exportar.', true))}
+          onExport={() => (editais.length ? exportCsv(editais, state.categorias, state.statuses, state.empresas) : notify('Nada para exportar.', true))}
         />
       )}
       {modal?.type === 'profile' && (
