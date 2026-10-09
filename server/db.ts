@@ -107,7 +107,8 @@ export const DATABASE_URL = process.env.DATABASE_URL || ''
 export const dbPath = DATABASE_URL ? `PostgreSQL (${new URL(DATABASE_URL).host})` : DB_FILE
 
 let pool: pg.Pool | null = null
-const getPool = () =>
+/** Pool do PostgreSQL (também usado pelo precificador, que guarda os dados em tabelas próprias). */
+export const getPool = () =>
   (pool ??= new pg.Pool({
     connectionString: DATABASE_URL,
     max: 4,
@@ -1318,6 +1319,14 @@ export const db = {
       d.sessions = d.sessions.filter((s) => s.userId !== t.id)
       return true
     })
+  },
+
+  /** Permissões efetivas do usuário (o precificador usa `excluir` para apagar processos, marcas e modelos). */
+  async perms(user: UserRecord): Promise<Permissoes> {
+    const d = await load()
+    const me = d.users.find((u) => u.id === user.id)
+    if (!me) throw new AuthError('Sessão inválida')
+    return permsDe(d, me)
   },
 
   async listUsernames(): Promise<string[]> {

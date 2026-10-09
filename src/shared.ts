@@ -303,3 +303,77 @@ export const REGIOES: Record<string, string[]> = {
   'Centro-Oeste': ['GO', 'MT', 'MS', 'DF'],
   'Norte/Nordeste': [],
 }
+
+// ---------- Precificador (marcas, modelos e processos de precificação) ----------
+export interface PrecifMarca {
+  id: number
+  nome: string
+  /** quantas vezes foi usada em processos exportados (ordena as sugestões) */
+  uso: number
+}
+
+export interface PrecifModelo {
+  id: number
+  marcaId: number
+  nome: string
+  uso: number
+}
+
+export interface PrecifCatalogo {
+  marcas: PrecifMarca[]
+  modelos: PrecifModelo[]
+}
+
+/** Uma linha da planilha do edital: lote/item e referência vêm da importação; o resto o usuário preenche. */
+export interface PrecifLinha {
+  lote: string
+  item: string
+  descricao: string
+  /** valor de referência unitário do edital */
+  ref: number
+  qtde: number
+  /** custo unitário (base do cálculo) */
+  custo: number
+  marca: string
+  modelo: string
+}
+
+/** centavo = arredonda para cima no centavo; dezena = abaixo de R$ 100 sobe para R$ 0,10, a partir de R$ 100 para o real inteiro */
+export type Arredondamento = 'centavo' | 'dezena'
+
+export interface PrecifProcessoInput {
+  nome: string
+  editalId: number | null
+  /** margem em % aplicada sobre o custo (preço = custo × (1 + margem/100)) */
+  margem: number
+  arredondamento: Arredondamento
+  /** lotes disputados pelo valor global (soma de unitário × quantidade); os demais, pelo unitário */
+  globais: string[]
+  linhas: PrecifLinha[]
+}
+
+export interface PrecifProcesso extends PrecifProcessoInput {
+  id: number
+  /** versão: sobe a cada gravação (detecta duas pessoas editando o mesmo processo) */
+  v: number
+  usoRegistrado: boolean
+  criadoPor: string
+  atualizadoPor: string
+  criadoEm: number
+  atualizadoEm: number
+}
+
+export interface PrecifProcessoResumo {
+  id: number
+  nome: string
+  editalId: number | null
+  margem: number
+  total: number
+  concluidos: number
+  criadoPor: string
+  atualizadoPor: string
+  atualizadoEm: number
+}
+
+/** Linha pronta: tem quantidade, custo, marca e modelo. */
+export const linhaCompleta = (l: PrecifLinha) => l.qtde > 0 && l.custo > 0 && !!l.marca.trim() && !!l.modelo.trim()

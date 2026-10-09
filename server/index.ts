@@ -15,13 +15,14 @@ import { stat } from 'node:fs/promises'
 import { networkInterfaces } from 'node:os'
 import path from 'node:path'
 import { AuthError, ConflictError, ForbiddenError, NotFoundError, ValidationError, db, dbPath, type UserRecord } from './db'
+import { precificador } from './precificador'
 
 const PORT = Number(process.env.PORT ?? 3001)
 const HOST = process.env.HOST ?? '0.0.0.0'
 const SECURE = process.env.COOKIE_SECURE === '1'
 const COOKIE = 'es_session'
 const SESSION_SECONDS = 30 * 24 * 3600
-const MAX_BODY = 1_000_000
+const MAX_BODY = 8_000_000 // processos do precificador e importação de catálogo trazem planilhas inteiras
 const DIST = path.resolve(process.cwd(), 'dist')
 
 class TooManyRequests extends Error {}
@@ -174,6 +175,22 @@ route('POST', /^\/api\/editais\/(\d+)\/retifs$/, true, async (c, m) => ({
   body: await db.addRetif(c.user!, Number(m[1]), c.body),
 }))
 route('DELETE', /^\/api\/editais$/, true, async (c) => ({ body: await db.clearAll(c.user!) }))
+
+// precificador (tabelas próprias no PostgreSQL — ver server/precificador.ts)
+route('GET', /^\/api\/precificador\/catalogo$/, true, async () => ({ body: await precificador.catalogo() }))
+route('POST', /^\/api\/precificador\/catalogo\/importar$/, true, async (c) => ({ body: await precificador.importarCatalogo(c.body) }))
+route('POST', /^\/api\/precificador\/marcas$/, true, async (c) => ({ status: 201, body: await precificador.criarMarca(c.body) }))
+route('PUT', /^\/api\/precificador\/marcas\/(\d+)$/, true, async (c, m) => ({ body: await precificador.editarMarca(Number(m[1]), c.body) }))
+route('DELETE', /^\/api\/precificador\/marcas\/(\d+)$/, true, async (c, m) => ({ body: await precificador.excluirMarca(c.user!, Number(m[1])) }))
+route('POST', /^\/api\/precificador\/modelos$/, true, async (c) => ({ status: 201, body: await precificador.criarModelo(c.body) }))
+route('PUT', /^\/api\/precificador\/modelos\/(\d+)$/, true, async (c, m) => ({ body: await precificador.editarModelo(Number(m[1]), c.body) }))
+route('DELETE', /^\/api\/precificador\/modelos\/(\d+)$/, true, async (c, m) => ({ body: await precificador.excluirModelo(c.user!, Number(m[1])) }))
+route('GET', /^\/api\/precificador\/processos$/, true, async () => ({ body: await precificador.listarProcessos() }))
+route('POST', /^\/api\/precificador\/processos$/, true, async (c) => ({ status: 201, body: await precificador.criarProcesso(c.user!, c.body) }))
+route('GET', /^\/api\/precificador\/processos\/(\d+)$/, true, async (_c, m) => ({ body: await precificador.obterProcesso(Number(m[1])) }))
+route('PUT', /^\/api\/precificador\/processos\/(\d+)$/, true, async (c, m) => ({ body: await precificador.salvarProcesso(c.user!, Number(m[1]), c.body) }))
+route('DELETE', /^\/api\/precificador\/processos\/(\d+)$/, true, async (c, m) => ({ body: await precificador.excluirProcesso(c.user!, Number(m[1])) }))
+route('POST', /^\/api\/precificador\/processos\/(\d+)\/registrar-uso$/, true, async (_c, m) => ({ body: await precificador.registrarUso(Number(m[1])) }))
 
 // ---------- HTTP ----------
 function send(res: ServerResponse, status: number, body: unknown, cookie?: string): void {

@@ -106,6 +106,8 @@ Para fazer backup ou trocar de computador, copie a pasta `data/` (com o servidor
 server/
   db.ts              banco: leitura/gravação do data/db.json, usuários, sessões, regras (retificação, prazos)
   index.ts           API (node:http) e, em produção, serve a pasta dist/
+  precificador.ts    Precificador: tabelas próprias no PostgreSQL (marcas, modelos, processos)
+  sql/               SQL das tabelas do Precificador (criadas sozinhas; o arquivo é para criar à mão)
   reset-password.ts  redefine senha pelo terminal
 src/
   shared.ts          tipos e constantes usados pelo front e pela API
@@ -113,10 +115,37 @@ src/
   Dashboard.tsx      painel (filtros, tabela, modais, sincronização ao vivo)
   lib/api.ts         chamadas à API
   lib/utils.ts       datas, moeda, filtro de período, exportar CSV
+  lib/precos.ts      cálculos do Precificador e leitura/gravação das planilhas .xlsx
   components/        Sidebar, Header, FilterBar, Kpis, RegionPanel, RetifPanel, EditalTable, Modals, AuthScreens
+  components/precificador/  telas do Precificador e de Marcas e Modelos
 tailwind.config.js   cores do tema (paleta clara)
 data/                db.json é criado aqui na primeira gravação
 ```
+
+## Precificador (menu Disputa)
+
+Precificação de itens de editais, com processos salvos no servidor (qualquer usuário continua de onde outro parou).
+
+1. **Novo processo**: importe a planilha de itens do edital. Primeira linha com os títulos *Lote*, *Item*, *Valor de referência*
+   e, se tiver, *Quantidade* e *Descrição* (sem títulos: A = lote, B = item, C = referência, D = quantidade). Dá para vincular a um edital.
+2. Em cada item: **Modelo** → **Marca** (sugestões do catálogo, mais usados primeiro; o que não existe aparece em laranja como "novo")
+   → **Custo** (aceita contas, ex.: `120+15,5`). Enter no custo vai para o custo da linha seguinte.
+3. **Preço** = custo × (1 + margem), arredondado para cima no centavo — ou, se escolhido, R$ 0,10 abaixo de R$ 100 e R$ 1 acima.
+   Verde: até a referência; amarelo: até 10% acima; vermelho: mais que isso.
+4. Cada lote é **Unitário** (disputa pela soma dos unitários) ou **Global** (soma de unitário × quantidade).
+   Lotes com mais de um item começam como Global.
+5. **Exportar**: Proposta, Disputa (as duas regras da planilha antiga: o que passa 10% da referência fica de fora; na proposta
+   vai o maior entre preço e referência, e item sem referência vai com 3× o preço) ou a planilha completa para conferência.
+   Ao exportar, marcas/modelos novos entram no catálogo e o uso de cada um é contado (uma vez por processo).
+
+O processo grava sozinho ~1,5 s depois de cada alteração. Se duas pessoas editarem o mesmo processo, quem gravar depois vê um
+aviso e escolhe entre recarregar ou gravar por cima. **Marcas e Modelos** (menu Disputa) é o catálogo: cadastrar, renomear,
+excluir e importar planilha com as colunas *Marca* e *Modelo*. Excluir processos, marcas e modelos segue a permissão "excluir"
+do perfil do usuário.
+
+**Banco:** o Precificador exige PostgreSQL (`DATABASE_URL`). Ele usa tabelas próprias — `precif_marcas`, `precif_modelos` e
+`precif_processos` — criadas automaticamente na primeira vez que a tela é aberta. Para criar à mão:
+`psql "$DATABASE_URL" -f server/sql/precificador.sql`.
 
 ## API
 
@@ -133,6 +162,12 @@ data/                db.json é criado aqui na primeira gravação
 | POST | `/api/editais/delete` | logado | exclui `{ ids }` |
 | POST | `/api/editais/:id/retifs` | logado | registra retificação (calcula dias de prorrogação e muda o status) |
 | DELETE | `/api/editais` | admin | apaga todos os editais |
+| GET · POST | `/api/precificador/processos` | logado | lista (resumo) / cria processo |
+| GET · PUT · DELETE | `/api/precificador/processos/:id` | logado (excluir: perfil) | abre / grava (`v` detecta edição simultânea) / exclui |
+| POST | `/api/precificador/processos/:id/registrar-uso` | logado | põe marcas/modelos novos no catálogo e conta o uso |
+| GET | `/api/precificador/catalogo` | logado | marcas e modelos |
+| POST · PUT · DELETE | `/api/precificador/marcas[/:id]` · `/modelos[/:id]` | logado (excluir: perfil) | cadastro do catálogo |
+| POST | `/api/precificador/catalogo/importar` | logado | importa pares `{ marca, modelo }` |
 
 ## Observações
 

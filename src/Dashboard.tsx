@@ -14,6 +14,8 @@ import CalendarView from './components/CalendarView'
 import { EditalModal, HistModal, ProfileModal, ReportModal, RetifModal, TransicaoModal, UsersModal } from './components/Modals'
 import { PortaisModal } from './components/Admin'
 import ConfigPage from './components/ConfigPage'
+import PrecificadorPage from './components/precificador/PrecificadorPage'
+import CatalogoPage from './components/precificador/CatalogoPage'
 
 type ModalState =
   | { type: 'edital'; id?: number; v?: number }
@@ -186,6 +188,15 @@ export default function Dashboard({ onLogout }: { onLogout: () => void }) {
     }
   }
 
+  /** Erros das telas do precificador (que não usam o estado compartilhado): sessão expirada desloga, o resto vira aviso. */
+  const onErroApi = useCallback(
+    (e: unknown) => {
+      if (e instanceof ApiError && e.status === 401) return logoutRef.current()
+      notify(e instanceof Error ? e.message : 'Erro inesperado', true)
+    },
+    [notify],
+  )
+
   const editais = useMemo(() => state?.editais ?? [], [state])
 
   // tudo que o usuário filtrou (aba, categoria, período, busca) menos a situação: serve de base para contar os cartões
@@ -236,7 +247,7 @@ export default function Dashboard({ onLogout }: { onLogout: () => void }) {
     if (n === 'usuarios') return setModal({ type: 'users' })
     if (n === 'portais') return setModal({ type: 'portais' })
     setNav(n)
-    if (n === 'calendario' || n === 'configuracoes') return window.scrollTo({ top: 0, behavior: 'smooth' })
+    if (n === 'calendario' || n === 'configuracoes' || n === 'precificador' || n === 'catalogo') return window.scrollTo({ top: 0, behavior: 'smooth' })
     setTab(n === 'RETIF' ? 'RETIF' : 'ALL')
     scrollToTable()
   }
@@ -329,7 +340,11 @@ export default function Dashboard({ onLogout }: { onLogout: () => void }) {
           )}
           <div className="flex w-full flex-col gap-space-lg pb-12 pt-space-lg">
             {/* Topo */}
-            {nav === 'configuracoes' && isAdmin ? (
+            {nav === 'precificador' ? (
+              <PrecificadorPage editais={editais} podeExcluir={me.perms.excluir} notify={notify} onErro={onErroApi} onCatalogo={() => onNav('catalogo')} />
+            ) : nav === 'catalogo' ? (
+              <CatalogoPage podeExcluir={me.perms.excluir} notify={notify} onErro={onErroApi} onVoltar={() => onNav('precificador')} />
+            ) : nav === 'configuracoes' && isAdmin ? (
               <ConfigPage
                 categorias={state.categorias}
                 statuses={state.statuses}

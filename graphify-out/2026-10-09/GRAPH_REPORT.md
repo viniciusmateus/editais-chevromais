@@ -1,17 +1,17 @@
-# Graph Report - editais-dashboard  (2026-10-08)
+# Graph Report - editais-dashboard  (2026-10-09)
 
 ## Corpus Check
-- 34 files · ~33,262 words
+- 34 files · ~33,835 words
 - Verdict: corpus is large enough that graph structure adds value.
 - Unclassified: 4 file(s) not represented in the graph (top: (none) 2, .css 1, .tsbuildinfo 1)
 
 ## Summary
-- 409 nodes · 953 edges · 15 communities (12 shown, 3 thin omitted)
+- 410 nodes · 962 edges · 14 communities (11 shown, 3 thin omitted)
 - Extraction: 100% EXTRACTED · 0% INFERRED · 0% AMBIGUOUS · INFERRED: 1 edges (avg confidence: 0.85)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `02098a4e`
+- Built from commit: `40750a62`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -26,8 +26,7 @@
 - compilerOptions
 - index.ts
 - Editais Chevomais
-- Admin.tsx
-- FluxoEditor.tsx
+- CalendarView.tsx
 
 ## God Nodes (most connected - your core abstractions)
 1. `Dashboard()` - 27 edges
@@ -42,6 +41,8 @@
 10. `todayIso()` - 13 edges
 
 ## Surprising Connections (you probably didn't know these)
+- `DbFile` --references--> `PerfilCfg`  [EXTRACTED]
+  server/db.ts → src/shared.ts
 - `parseEdital()` --calls--> `horaValida()`  [EXTRACTED]
   server/db.ts → src/shared.ts
 - `parseEdital()` --calls--> `isoValida()`  [EXTRACTED]
@@ -50,13 +51,11 @@
   server/db.ts → src/shared.ts
 - `DbFile` --references--> `Edital`  [EXTRACTED]
   server/db.ts → src/shared.ts
-- `DbFile` --references--> `ImpugnacaoCfg`  [EXTRACTED]
-  server/db.ts → src/shared.ts
 
 ## Import Cycles
 - None detected.
 
-## Communities (15 total, 3 thin omitted)
+## Communities (14 total, 3 thin omitted)
 
 ### Community 0 - "db.ts"
 Cohesion: 0.06
@@ -67,16 +66,16 @@ Cohesion: 0.05
 Nodes (39): dependencies, react, react-dom, devDependencies, autoprefixer, concurrently, postcss, tailwindcss (+31 more)
 
 ### Community 2 - "Modals.tsx"
-Cohesion: 0.12
-Nodes (33): ItemForm(), PortaisModal(), PortalForm(), brToIso(), DateInput(), MaskedInput(), Props, TimeInput() (+25 more)
+Cohesion: 0.07
+Nodes (62): CfgMode, CORES, Item, ItemForm(), ListaOrdenavel(), PortaisModal(), PortalForm(), PortalMode (+54 more)
 
 ### Community 3 - "Dashboard.tsx"
-Cohesion: 0.08
-Nodes (49): CalendarView(), nomePortal(), BotaoFluxo(), DateCell(), EditalTable(), FluxoBotoes(), PAGE_SIZES, StatusCell() (+41 more)
+Cohesion: 0.10
+Nodes (47): CalendarView(), BotaoFluxo(), DateCell(), EditalTable(), FluxoBotoes(), PAGE_SIZES, StatusCell(), Tab (+39 more)
 
 ### Community 4 - "shared.ts"
-Cohesion: 0.08
-Nodes (32): react, App(), AuthScreen(), Props, UserFormValue, api, ApiError, NewUser (+24 more)
+Cohesion: 0.07
+Nodes (34): react, App(), AuthScreen(), Props, brToIso(), Props, toTime(), UserFormValue (+26 more)
 
 ### Community 5 - "compilerOptions"
 Cohesion: 0.10
@@ -98,13 +97,9 @@ Nodes (20): ConflictError, db, dbPath, UserRecord, attempts, Ctx, DIST, getCooki
 Cohesion: 0.17
 Nodes (11): API, Como rodar, Editais Chevomais, Esqueci a senha do administrador, Estrutura, Observações, Onde ficam os dados, Para o time usar (um computador faz o papel de servidor) (+3 more)
 
-### Community 13 - "Admin.tsx"
-Cohesion: 0.10
-Nodes (41): DbFile, CfgMode, CORES, Item, ListaOrdenavel(), PortalMode, REGRA_LABEL, resumo() (+33 more)
-
-### Community 14 - "FluxoEditor.tsx"
-Cohesion: 0.19
-Nodes (13): borda(), chave(), FluxoEditor(), Geo, geometria(), layoutAutomatico(), Pos, Pt (+5 more)
+### Community 13 - "CalendarView.tsx"
+Cohesion: 0.14
+Nodes (26): DbFile, DIAS, DIAS_LONGOS, keyDe(), MESES, nomePortal(), pad(), PALETA (+18 more)
 
 ## Knowledge Gaps
 - **127 isolated node(s):** `name`, `private`, `version`, `type`, `dev` (+122 more)
@@ -114,7 +109,7 @@ Nodes (13): borda(), chave(), FluxoEditor(), Geo, geometria(), layoutAutomatico(
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `react` connect `shared.ts` to `package.json`, `Modals.tsx`, `Dashboard.tsx`, `Admin.tsx`, `FluxoEditor.tsx`?**
+- **Why does `react` connect `shared.ts` to `package.json`, `Modals.tsx`, `Dashboard.tsx`, `CalendarView.tsx`?**
   _High betweenness centrality (0.141) - this node is a cross-community bridge._
 - **What connects `name`, `private`, `version` to the rest of the system?**
   _127 weakly-connected nodes found - possible documentation gaps or missing edges._
@@ -123,8 +118,8 @@ _Questions this graph is uniquely positioned to answer:_
 - **Should `package.json` be split into smaller, more focused modules?**
   _Cohesion score 0.05 - nodes in this community are weakly interconnected._
 - **Should `Modals.tsx` be split into smaller, more focused modules?**
-  _Cohesion score 0.11740890688259109 - nodes in this community are weakly interconnected._
+  _Cohesion score 0.06829488919041157 - nodes in this community are weakly interconnected._
 - **Should `Dashboard.tsx` be split into smaller, more focused modules?**
-  _Cohesion score 0.08299240210403273 - nodes in this community are weakly interconnected._
+  _Cohesion score 0.09837092731829573 - nodes in this community are weakly interconnected._
 - **Should `shared.ts` be split into smaller, more focused modules?**
-  _Cohesion score 0.08461538461538462 - nodes in this community are weakly interconnected._
+  _Cohesion score 0.07272727272727272 - nodes in this community are weakly interconnected._

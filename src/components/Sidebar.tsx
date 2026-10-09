@@ -1,4 +1,4 @@
-export type Nav = 'dashboard' | 'editais' | 'RETIF' | 'novo' | 'calendario' | 'relatorio' | 'usuarios' | 'portais' | 'configuracoes' | 'perfil'
+export type Nav = 'dashboard' | 'editais' | 'RETIF' | 'novo' | 'calendario' | 'relatorio' | 'precificador' | 'catalogo' | 'usuarios' | 'portais' | 'configuracoes' | 'perfil'
 
 interface Props {
   nav: Nav
@@ -23,6 +23,10 @@ export default function Sidebar({ nav, counts, isAdmin, onNav }: Props) {
     { id: 'novo', icon: 'post_add', label: 'Registro de Editais' },
     { id: 'calendario', icon: 'calendar_clock', label: 'Calendário & Prazos' },
     { id: 'relatorio', icon: 'query_stats', label: 'Relatórios' },
+  ]
+  const disputa: Item[] = [
+    { id: 'precificador', icon: 'calculate', label: 'Precificador' },
+    { id: 'catalogo', icon: 'inventory_2', label: 'Marcas e Modelos' },
   ]
 
   const link = (it: Item) => {
@@ -67,6 +71,10 @@ export default function Sidebar({ nav, counts, isAdmin, onNav }: Props) {
           <div className="px-space-sm py-space-xs font-label-sm text-label-sm uppercase tracking-wider text-outline">Módulos Principais</div>
         </div>
         <nav className="flex flex-col gap-1 px-space-md">{main.map(link)}</nav>
+        <div className="px-space-md pb-space-sm pt-space-md">
+          <div className="px-space-sm py-space-xs font-label-sm text-label-sm uppercase tracking-wider text-outline">Disputa</div>
+        </div>
+        <nav className="flex flex-col gap-1 px-space-md">{disputa.map(link)}</nav>
       </div>
       <div className="flex flex-col gap-space-sm p-space-md">
         <nav className="flex flex-col gap-1">

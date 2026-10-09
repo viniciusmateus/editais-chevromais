@@ -1,4 +1,4 @@
-import type { AppState, AuthStatus, CampoBase, EditalInput, Papel, RegrasCampos, Transicao, Unchanged } from '../shared'
+import type { AppState, AuthStatus, CampoBase, EditalInput, Papel, PrecifCatalogo, PrecifProcesso, PrecifProcessoInput, PrecifProcessoResumo, RegrasCampos, Transicao, Unchanged } from '../shared'
 
 export interface PortalInput {
   nome: string
@@ -122,4 +122,22 @@ export const api = {
   deleteEditais: (ids: number[]) => req<AppState>('/api/editais/delete', 'POST', { ids }),
   addRetif: (id: number, r: { desc: string; data?: string; hora?: string }) => req<AppState>(`/api/editais/${id}/retifs`, 'POST', r),
   clearAll: () => req<AppState>('/api/editais', 'DELETE'),
+
+  // precificador (dados em tabelas próprias; não entram na sincronização do estado)
+  precifCatalogo: () => req<PrecifCatalogo>('/api/precificador/catalogo'),
+  precifImportarCatalogo: (linhas: Array<{ marca: string; modelo: string }>) =>
+    req<{ catalogo: PrecifCatalogo; marcasCriadas: number; modelosCriados: number; ignorados: number }>('/api/precificador/catalogo/importar', 'POST', { linhas }),
+  precifCriarMarca: (nome: string) => req<PrecifCatalogo>('/api/precificador/marcas', 'POST', { nome }),
+  precifEditarMarca: (id: number, nome: string) => req<PrecifCatalogo>(`/api/precificador/marcas/${id}`, 'PUT', { nome }),
+  precifExcluirMarca: (id: number) => req<PrecifCatalogo>(`/api/precificador/marcas/${id}`, 'DELETE'),
+  precifCriarModelo: (marcaId: number, nome: string) => req<PrecifCatalogo>('/api/precificador/modelos', 'POST', { marcaId, nome }),
+  precifEditarModelo: (id: number, nome: string) => req<PrecifCatalogo>(`/api/precificador/modelos/${id}`, 'PUT', { nome }),
+  precifExcluirModelo: (id: number) => req<PrecifCatalogo>(`/api/precificador/modelos/${id}`, 'DELETE'),
+  precifProcessos: () => req<PrecifProcessoResumo[]>('/api/precificador/processos'),
+  precifProcesso: (id: number) => req<PrecifProcesso>(`/api/precificador/processos/${id}`),
+  precifCriarProcesso: (v: PrecifProcessoInput) => req<PrecifProcesso>('/api/precificador/processos', 'POST', v),
+  /** `v` = versão que a tela estava editando; se outra pessoa gravou antes, a API responde 409 */
+  precifSalvarProcesso: (id: number, v: PrecifProcessoInput & { v: number }) => req<PrecifProcesso>(`/api/precificador/processos/${id}`, 'PUT', v),
+  precifExcluirProcesso: (id: number) => req<{ ok: true }>(`/api/precificador/processos/${id}`, 'DELETE'),
+  precifRegistrarUso: (id: number) => req<PrecifCatalogo>(`/api/precificador/processos/${id}/registrar-uso`, 'POST', {}),
 }
