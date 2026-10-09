@@ -5,6 +5,7 @@ import { fmtTs } from '../../lib/utils'
 import { chave, exportarCompleta, exportarDisputa, exportarProposta, fmt2, fmtBrl, importarQuantidades, resumirLotes, situacao, variacao } from '../../lib/precos'
 import { input, labelCls } from '../Modals'
 import { ArredondamentoSelect, Interruptor, MargemInput } from './campos'
+import EditalPicker from './EditalPicker'
 import LinhaItem, { CORES_SITUACAO, type IndiceCatalogo } from './LinhaItem'
 
 type Gravacao = 'salvo' | 'pendente' | 'salvando' | 'erro' | 'conflito'
@@ -252,8 +253,6 @@ export default function ProcessoEditor({ inicial, catalogo, onCatalogo, editais,
     }
   }
 
-  const editaisOrdenados = useMemo(() => [...editais].sort((a, b) => b.id - a.id), [editais])
-  const editalVinculado = proc.editalId !== null ? editais.find((e) => e.id === proc.editalId) : undefined
 
   const rotuloGravacao: Record<Gravacao, { txt: string; cls: string; icon: string }> = {
     salvo: { txt: `Salvo${proc.atualizadoPor ? ` • ${proc.atualizadoPor}, ${fmtTs(proc.atualizadoEm)}` : ''}`, cls: 'text-secondary', icon: 'cloud_done' },
@@ -312,19 +311,7 @@ export default function ProcessoEditor({ inicial, catalogo, onCatalogo, editais,
             </label>
             <label className="flex min-w-[220px] flex-1 flex-col gap-1">
               <span className={labelCls}>Edital vinculado</span>
-              <select
-                value={proc.editalId ?? ''}
-                onChange={(e) => alterar((p) => ({ ...p, editalId: e.target.value ? Number(e.target.value) : null }))}
-                className={input}
-              >
-                <option value="">— Nenhum —</option>
-                {proc.editalId !== null && !editalVinculado && <option value={proc.editalId}>Edital #{proc.editalId} (não encontrado)</option>}
-                {editaisOrdenados.map((e) => (
-                  <option key={e.id} value={e.id}>
-                    {rotuloEdital(e)}
-                  </option>
-                ))}
-              </select>
+              <EditalPicker editais={editais} value={proc.editalId} onChange={(editalId) => alterar((p) => ({ ...p, editalId }))} dica={proc.nome} />
             </label>
             <div className="flex w-44 flex-col gap-1">
               <span className={`${labelCls} flex justify-between`}>

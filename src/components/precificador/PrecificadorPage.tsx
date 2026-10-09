@@ -5,6 +5,7 @@ import { fmtTs } from '../../lib/utils'
 import { fmt2, importarItens } from '../../lib/precos'
 import { Actions, Field, Modal, btnPrimary, input } from '../Modals'
 import { ArredondamentoSelect, Calculadora, MargemInput } from './campos'
+import EditalPicker from './EditalPicker'
 import ProcessoEditor, { rotuloEdital } from './ProcessoEditor'
 
 interface Props {
@@ -257,7 +258,6 @@ function NovoProcessoModal({
   const [margem, setMargem] = useState(0)
   const [arred, setArred] = useState<Arredondamento>('centavo')
   const [busy, setBusy] = useState(false)
-  const ordenados = useMemo(() => [...editais].sort((a, b) => b.id - a.id), [editais])
 
   const ler = async (f: File) => {
     setErro('')
@@ -314,14 +314,7 @@ function NovoProcessoModal({
           <input required maxLength={160} className={input} value={nome} onChange={(e) => setNome(e.target.value)} placeholder="Ex.: Pregão 90012/2026 — Prefeitura de Curitiba" />
         </Field>
         <Field label="Edital vinculado (opcional)">
-          <select className={input} value={editalId} onChange={(e) => setEditalId(e.target.value)}>
-            <option value="">— Nenhum —</option>
-            {ordenados.map((e) => (
-              <option key={e.id} value={e.id}>
-                {rotuloEdital(e)}
-              </option>
-            ))}
-          </select>
+          <EditalPicker editais={editais} value={editalId ? Number(editalId) : null} onChange={(id) => setEditalId(id === null ? '' : String(id))} dica={nome} />
         </Field>
         <div className="grid grid-cols-1 gap-space-md sm:grid-cols-2">
           <Field label="Margem">

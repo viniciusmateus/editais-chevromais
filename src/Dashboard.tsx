@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { type AppState, type PublicUser, type Transicao } from './shared'
 import { api, ApiError } from './lib/api'
-import { compararDataHora, exportCsv, inPeriod, naVisao, emAberto, todayIso, type Periodo, type Visao } from './lib/utils'
+import { compararDataHora, ctxVisao, exportCsv, inPeriod, naVisao, emAberto, todayIso, type Periodo, type Visao } from './lib/utils'
 import Sidebar, { type Nav } from './components/Sidebar'
 import Header from './components/Header'
 import FilterBar from './components/FilterBar'
@@ -41,6 +41,7 @@ export default function Dashboard({ onLogout }: { onLogout: () => void }) {
   const [fCat, setFCat] = useState('ALL')
   const [fPer, setFPer] = useState<Periodo>('all')
   const [visao, setVisao] = useState<Visao>('aberto')
+  const [fStatus, setFStatus] = useState('')
   const [sortAsc, setSortAsc] = useState(true)
   const [page, setPage] = useState(1)
   const [selected, setSelected] = useState<Set<number>>(new Set())
@@ -129,7 +130,7 @@ export default function Dashboard({ onLogout }: { onLogout: () => void }) {
     return () => clearTimeout(t)
   }, [toast])
 
-  useEffect(() => setPage(1), [tab, fCat, fPer, visao, q])
+  useEffect(() => setPage(1), [tab, fCat, fPer, visao, fStatus, q])
 
   // categoria excluída (por este ou outro usuário) enquanto estava selecionada num filtro/aba: volta para "todas"
   useEffect(() => {
@@ -137,8 +138,8 @@ export default function Dashboard({ onLogout }: { onLogout: () => void }) {
     const existe = (id: string) => state.categorias.some((c) => c.id === id)
     if (tab !== 'ALL' && tab !== 'RETIF' && !existe(tab)) setTab('ALL')
     if (fCat !== 'ALL' && !existe(fCat)) setFCat('ALL')
-    if (visao.startsWith('s:') && !state.statuses.some((s) => s.id === visao.slice(2))) setVisao('aberto')
-  }, [state, tab, fCat, visao])
+    if (fStatus && !state.statuses.some((s) => s.id === fStatus)) setFStatus('')
+  }, [state, tab, fCat, fStatus])
 
   // se outra pessoa excluir o edital que está aberto num modal, fecha o modal
   useEffect(() => {
@@ -212,22 +213,29 @@ export default function Dashboard({ onLogout }: { onLogout: () => void }) {
   }, [editais, tab, fCat, fPer, q])
 
   const transicoes = state?.transicoes
+  const ctx = useMemo(() => ctxVisao(base, state?.statuses ?? [], state?.transicoes ?? []), [base, state?.statuses, state?.transicoes])
   const filtered = useMemo(() => {
     const t = transicoes ?? []
-    return base.filter((x) => naVisao(x, visao, t)).sort((a, b) => (sortAsc ? compararDataHora(a, b) : compararDataHora(b, a)))
-  }, [base, visao, transicoes, sortAsc])
+    return base.filter((x) => naVisao(x, visao, t, ctx) && (!fStatus || x.status === fStatus)).sort((a, b) => (sortAsc ? compararDataHora(a, b) : compararDataHora(b, a)))
+  }, [base, visao, fStatus, transicoes, sortAsc, ctx])
 
   // quantidades dos cartões de situação
   const nSituacao = useMemo(() => {
     const t = transicoes ?? []
     return {
       aberto: base.filter((x) => emAberto(x, t)).length,
-      hoje: base.filter((x) => naVisao(x, 'hoje', t)).length,
-      atrasados: base.filter((x) => naVisao(x, 'atrasados', t)).length,
+      hoje: base.filter((x) => naVisao(x, 'hoje', t, ctx)).length,
+      proximo: base.filter((x) => naVisao(x, 'proximo', t, ctx)).length,
+      proximaData: ctx.proximaData,
+      atrasados: base.filter((x) => naVisao(x, 'atrasados', t, ctx)).length,
       todos: base.length,
     }
-  }, [base, transicoes])
-  const porStatus = useMemo(() => base.reduce<Record<string, number>>((acc, x) => ((acc[x.status] = (acc[x.status] ?? 0) + 1), acc), {}), [base])
+  }, [base, transicoes, ctx])
+  // quantidade por status dentro da visão escolhida
+  const porStatus = useMemo(() => {
+    const t = transicoes ?? []
+    return base.filter((x) => naVisao(x, visao, t, ctx)).reduce<Record<string, number>>((acc, x) => ((acc[x.status] = (acc[x.status] ?? 0) + 1), acc), {})
+  }, [base, visao, transicoes, ctx])
 
   const counts = useMemo(
     () => ({
@@ -277,6 +285,7 @@ export default function Dashboard({ onLogout }: { onLogout: () => void }) {
     setFCat('ALL')
     setFPer('all')
     setVisao('aberto')
+    setFStatus('')
     setTab('ALL')
     setNav('dashboard')
   }
@@ -482,7 +491,7 @@ export default function Dashboard({ onLogout }: { onLogout: () => void }) {
             </div>
 
             <div ref={tableRef} className="flex flex-col gap-space-sm">
-              <SituacaoBar visao={visao} onVisao={setVisao} n={nSituacao} statuses={state.statuses} porStatus={porStatus} />
+              <SituacaoBar visao={visao} onVisao={setVisao} fStatus={fStatus} onStatus={setFStatus} n={nSituacao} statuses={state.statuses} porStatus={porStatus} />
               <EditalTable
                 list={filtered}
                 total={editais.length}

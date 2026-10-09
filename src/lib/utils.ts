@@ -15,19 +15,44 @@ export const addDaysIso = (n: number) => {
 /** AAAA-MM-DD -> dd/MM/aaaa */
 export const fmtDate = (s: string) => (s ? s.split('-').reverse().join('/') : 'A Definir')
 
-/** Visão da lista: situação do edital ('s:ID' = um status específico). */
-export type Visao = 'aberto' | 'hoje' | 'atrasados' | 'todos' | `s:${string}`
+/** Visão da lista: situação do edital. O status é um filtro à parte, aplicado dentro da visão. */
+export type Visao = 'aberto' | 'hoje' | 'proximo' | 'atrasados' | 'todos'
 
 /** Edital que ainda precisa de andamento: sem resultado e com algum passo a dar no fluxo (sem fluxo cadastrado, basta não ter resultado). */
 export const emAberto = (e: Edital, transicoes: Transicao[]) => e.resultado === '' && (transicoes.length === 0 || transicoes.some((t) => t.de === e.status))
 
-export function naVisao(e: Edital, v: Visao, transicoes: Transicao[]): boolean {
+/** Contexto das visões que dependem do status "Cadastrado" e da próxima data de pregão. */
+export interface CtxVisao {
+  /** id do status "Cadastrado" (vazio se não existir) */
+  cadastradoId: string
+  /** data (AAAA-MM-DD) do próximo dia, depois de hoje, com pregão ainda em aberto */
+  proximaData: string
+}
+
+const semAcento = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim()
+
+/** Monta o contexto: acha o status "Cadastrado" pelo nome e a próxima data (depois de hoje) com pregão em aberto. */
+export function ctxVisao(editais: Edital[], statuses: StatusCfg[], transicoes: Transicao[]): CtxVisao {
+  const cadastradoId = statuses.find((s) => semAcento(s.nome) === 'cadastrado')?.id ?? ''
+  const hoje = todayIso()
+  let proximaData = ''
+  for (const e of editais) {
+    if (e.data > hoje && (!proximaData || e.data < proximaData) && emAberto(e, transicoes)) proximaData = e.data
+  }
+  return { cadastradoId, proximaData }
+}
+
+export function naVisao(e: Edital, v: Visao, transicoes: Transicao[], ctx: CtxVisao): boolean {
   const hoje = todayIso()
   if (v === 'todos') return true
   if (v === 'aberto') return emAberto(e, transicoes)
   if (v === 'hoje') return e.data === hoje
-  if (v === 'atrasados') return !!e.data && e.data < hoje && emAberto(e, transicoes)
-  return e.status === v.slice(2)
+  const cadastrado = !!ctx.cadastradoId && e.status === ctx.cadastradoId && e.resultado === ''
+  // próximo dia: pregões em aberto (de qualquer status) na próxima data que tem algum
+  if (v === 'proximo') return !!ctx.proximaData && e.data === ctx.proximaData && emAberto(e, transicoes)
+  // sem atualização: a data do pregão já passou e o edital continua só como Cadastrado
+  if (v === 'atrasados') return cadastrado && !!e.data && e.data < hoje
+  return true
 }
 
 /** Dias de hoje até a data (negativo = já passou). */

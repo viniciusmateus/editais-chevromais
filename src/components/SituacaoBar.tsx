@@ -4,8 +4,11 @@ import type { Visao } from '../lib/utils'
 interface Props {
   visao: Visao
   onVisao: (v: Visao) => void
+  /** status escolhido dentro da visão ('' = todos) */
+  fStatus: string
+  onStatus: (id: string) => void
   /** contagens das visões inteligentes, já considerando categoria, período e busca */
-  n: { aberto: number; hoje: number; atrasados: number; todos: number }
+  n: { aberto: number; hoje: number; proximo: number; proximaData: string; atrasados: number; todos: number }
   statuses: StatusCfg[]
   porStatus: Record<string, number>
 }
@@ -22,17 +25,18 @@ interface CardInfo {
  * Faixa de cartões que divide a lista por situação: quanto ainda precisa de atenção (em aberto, hoje, sem atualização)
  * e, embaixo, uma pílula compacta por status que tem editais. Clicar mostra só aqueles editais.
  */
-export default function SituacaoBar({ visao, onVisao, n, statuses, porStatus }: Props) {
+export default function SituacaoBar({ visao, onVisao, fStatus, onStatus, n, statuses, porStatus }: Props) {
   const smart: CardInfo[] = [
     { id: 'aberto', label: 'Em aberto', n: n.aberto, cor: '#0369a1', icon: 'pending_actions' },
     { id: 'hoje', label: 'Hoje', n: n.hoje, cor: '#ba1a1a', icon: 'today' },
+    { id: 'proximo', label: 'Próximo dia', n: n.proximo, cor: '#7c3aed', icon: 'event_upcoming' },
     { id: 'atrasados', label: 'Sem atualização', n: n.atrasados, cor: '#b45309', icon: 'schedule' },
     { id: 'todos', label: 'Todos', n: n.todos, cor: '#475569', icon: 'list' },
   ]
   // só os status que têm editais (o selecionado sempre aparece)
-  const porSt: CardInfo[] = statuses
-    .map((s) => ({ id: `s:${s.id}` as Visao, label: s.nome, n: porStatus[s.id] ?? 0, cor: s.cor }))
-    .filter((c) => c.n > 0 || c.id === visao)
+  const porSt = statuses
+    .map((s) => ({ id: s.id, label: s.nome, n: porStatus[s.id] ?? 0, cor: s.cor }))
+    .filter((c) => c.n > 0 || c.id === fStatus)
 
   const card = (c: CardInfo) => {
     const on = visao === c.id
@@ -42,7 +46,15 @@ export default function SituacaoBar({ visao, onVisao, n, statuses, porStatus }: 
         type="button"
         onClick={() => onVisao(c.id)}
         aria-pressed={on}
-        title={c.id === 'atrasados' ? 'Pregões que já aconteceram e ainda estão sem atualização no fluxo' : `Mostrar: ${c.label}`}
+        title={
+          c.id === 'atrasados'
+            ? 'Pregões que continuam como Cadastrado depois da data marcada'
+            : c.id === 'proximo'
+              ? n.proximaData
+                ? `Pregões cadastrados do próximo dia com pregão (${n.proximaData.split('-').reverse().join('/')})`
+                : 'Nenhum pregão cadastrado nos próximos dias'
+              : `Mostrar: ${c.label}`
+        }
         className={`flex min-w-[150px] flex-1 items-center gap-2.5 rounded-xl border bg-surface-container-lowest px-3 py-2 text-left transition-all hover:shadow-md ${
           on ? 'shadow-md' : 'border-transparent'
         }`}
@@ -55,22 +67,24 @@ export default function SituacaoBar({ visao, onVisao, n, statuses, porStatus }: 
           <span className="block font-headline-sm text-[20px] font-bold leading-none" style={{ color: on ? c.cor : undefined }}>
             {c.n}
           </span>
-          <span className="mt-0.5 block whitespace-nowrap text-[11px] font-semibold uppercase tracking-wide text-on-surface-variant">{c.label}</span>
+          <span className="mt-0.5 block whitespace-nowrap text-[11px] font-semibold uppercase tracking-wide text-on-surface-variant">{c.label}
+            {c.id === 'proximo' && n.proximaData && <span className="ml-1 normal-case opacity-70">{n.proximaData.split('-').reverse().slice(0, 2).join('/')}</span>}
+          </span>
         </span>
       </button>
     )
   }
 
   /** Pílula pequena de um status: ponto colorido, nome e quantidade, tudo numa linha. */
-  const pilula = (c: CardInfo) => {
-    const on = visao === c.id
+  const pilula = (c: { id: string; label: string; n: number; cor: string }) => {
+    const on = fStatus === c.id
     return (
       <button
         key={c.id}
         type="button"
-        onClick={() => onVisao(on ? 'todos' : c.id)}
+        onClick={() => onStatus(on ? '' : c.id)}
         aria-pressed={on}
-        title={on ? 'Clique para voltar a ver todos' : `Mostrar só: ${c.label}`}
+        title={on ? 'Clique para tirar o filtro de status' : `Dentro desta visão, mostrar só: ${c.label}`}
         className={`flex h-7 items-center gap-1.5 whitespace-nowrap rounded-full border px-2.5 text-[12px] font-semibold transition-colors ${
           on ? 'text-white' : 'border-surface-container bg-surface-container-lowest text-on-surface-variant hover:bg-surface-container-low'
         }`}
