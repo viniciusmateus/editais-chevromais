@@ -7,6 +7,7 @@
  *   HOST=0.0.0.0         0.0.0.0 = acessível por outros computadores da rede; 127.0.0.1 = só este computador
  *   COOKIE_SECURE=1      marca o cookie de sessão como Secure (use se publicar atrás de HTTPS)
  *   DATABASE_URL=...     conexão PostgreSQL (ver .env.example); sem ela usa DATA_DIR/db.json
+ *   SSH_TUNNEL=usuario@host   abre sozinho o túnel SSH até o PostgreSQL (ver server/tunnel.ts)
  *   DATA_DIR=./data      pasta do db.json (modo arquivo)
  */
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
@@ -16,6 +17,7 @@ import { networkInterfaces } from 'node:os'
 import path from 'node:path'
 import { AuthError, ConflictError, ForbiddenError, NotFoundError, ValidationError, db, dbPath, type UserRecord } from './db'
 import { precificador } from './precificador'
+import { garantirTunel } from './tunnel'
 
 const PORT = Number(process.env.PORT ?? 3001)
 const HOST = process.env.HOST ?? '0.0.0.0'
@@ -328,6 +330,7 @@ server.on('error', (e: NodeJS.ErrnoException) => {
   process.exit(1)
 })
 
+await garantirTunel() // SSH_TUNNEL no .env: abre o túnel para o PostgreSQL da VPS antes de atender
 server.listen(PORT, HOST, () => {
   console.log(`[api] Editais Chevomais rodando na porta ${PORT}`)
   console.log(`      Neste computador: http://localhost:${PORT}`)
