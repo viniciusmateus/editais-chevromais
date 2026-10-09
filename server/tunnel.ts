@@ -7,6 +7,9 @@
  *
  *   SSH_TUNNEL=root@198.50.117.238
  *   SSH_TUNNEL_REMOTE_PORT=5432   (opcional)
+ *   SSH_TUNNEL_KEY=C:\Users\fulano\.ssh\id_ed25519   (opcional; sem isso usa a chave padrão em ~/.ssh ou o ssh-agent)
+ *
+ * Nunca pergunta senha: a entrada é só por chave (BatchMode). Se a chave não for aceita, o erro aparece no log.
  */
 import './env'
 import { spawn, type ChildProcess } from 'node:child_process'
@@ -29,8 +32,17 @@ let encerrando = false
 function abrir(port: number): void {
   filho = spawn(
     'ssh',
-    ['-N', '-L', `${port}:localhost:${remota}`, '-o', 'ServerAliveInterval=30', '-o', 'ExitOnForwardFailure=yes', '-o', 'StrictHostKeyChecking=accept-new', alvo!],
-    { stdio: 'inherit', windowsHide: true },
+    [
+      '-N',
+      '-L', `${port}:localhost:${remota}`,
+      '-o', 'BatchMode=yes', // nunca pede senha
+      '-o', 'ServerAliveInterval=30',
+      '-o', 'ExitOnForwardFailure=yes',
+      '-o', 'StrictHostKeyChecking=accept-new',
+      ...(process.env.SSH_TUNNEL_KEY ? ['-i', process.env.SSH_TUNNEL_KEY, '-o', 'IdentitiesOnly=yes'] : []),
+      alvo!,
+    ],
+    { stdio: ['ignore', 'inherit', 'inherit'], windowsHide: true },
   )
   filho.on('error', (e) => console.error(`[tunel] não foi possível executar o ssh: ${e.message}`))
   filho.on('exit', (code) => {
@@ -54,7 +66,7 @@ export async function garantirTunel(): Promise<void> {
     await new Promise((r) => setTimeout(r, 500))
     if (await respondendo(port)) return console.log('[tunel] túnel aberto.')
   }
-  console.error('[tunel] o túnel não abriu em 20 s. Confira o acesso SSH à VPS (chave ou senha).')
+  console.error('[tunel] o túnel não abriu em 20 s. Este PC precisa da chave SSH da VPS (arquivo id_ed25519 em C:\Users\<usuario>\.ssh) ou de SSH_TUNNEL_KEY no .env apontando para ela.')
 }
 
 const fechar = () => {
