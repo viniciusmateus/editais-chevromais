@@ -6,7 +6,8 @@
  *   PORT=3001            porta
  *   HOST=0.0.0.0         0.0.0.0 = acessível por outros computadores da rede; 127.0.0.1 = só este computador
  *   COOKIE_SECURE=1      marca o cookie de sessão como Secure (use se publicar atrás de HTTPS)
- *   DATA_DIR=./data      pasta do db.json
+ *   DATABASE_URL=...     conexão PostgreSQL (ver .env.example); sem ela usa DATA_DIR/db.json
+ *   DATA_DIR=./data      pasta do db.json (modo arquivo)
  */
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import { createReadStream } from 'node:fs'

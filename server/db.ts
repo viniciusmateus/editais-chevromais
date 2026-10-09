@@ -1,23 +1,27 @@
 /**
  * db.ts — banco de dados do Editais Chevomais.
  *
- * Os dados ficam num arquivo JSON em disco (por padrão ./data/db.json): editais,
- * retificações, usuários e sessões. Sobrevivem a limpeza de cache, troca de navegador
+ * Os dados ficam no PostgreSQL (DATABASE_URL), numa tabela `app_state` com o documento
+ * inteiro em jsonb: editais, retificações, usuários e sessões. Sem DATABASE_URL, cai no
+ * arquivo JSON local (./data/db.json) — útil só para desenvolvimento. Sobrevivem a limpeza de cache, troca de navegador
  * e reinício do servidor, e são compartilhados por todos os usuários.
  *
  * - Senhas: scrypt com sal individual (nunca guardadas em texto).
  * - Sessões: o navegador recebe um token aleatório; aqui só fica o hash dele.
  * - Escrita atômica: grava em arquivo temporário e renomeia.
- * - Backup automático: a versão anterior fica em db.bak.json a cada gravação.
+ * - Backup automático: a versão anterior fica na linha id=2 de app_state (ou em db.bak.json) a cada gravação.
  * - Escritas serializadas: duas requisições simultâneas nunca se sobrescrevem.
  * - Cada alteração sobe `rev`; as telas abertas usam isso para se manterem sincronizadas.
  *
- * Variável de ambiente: DATA_DIR (pasta onde o db.json é guardado).
+ * Variáveis de ambiente: DATABASE_URL (postgres://usuario:senha@host:5432/banco),
+ * DATABASE_SSL=1 (opcional) e DATA_DIR (modo arquivo).
  */
+import './env'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { createHash, randomBytes, scrypt, timingSafeEqual } from 'node:crypto'
 import { promisify } from 'node:util'
+import pg from 'pg'
 import {
   CAMPOS_PORTAL,
   CAMPOS_BASE,
@@ -99,7 +103,62 @@ const DB_FILE = path.join(DATA_DIR, 'db.json')
 const BAK_FILE = path.join(DATA_DIR, 'db.bak.json')
 const TMP_FILE = path.join(DATA_DIR, 'db.json.tmp')
 
-export const dbPath = DB_FILE
+export const DATABASE_URL = process.env.DATABASE_URL || ''
+export const dbPath = DATABASE_URL ? `PostgreSQL (${new URL(DATABASE_URL).host})` : DB_FILE
+
+let pool: pg.Pool | null = null
+const getPool = () =>
+  (pool ??= new pg.Pool({
+    connectionString: DATABASE_URL,
+    max: 4,
+    ssl: process.env.DATABASE_SSL === '1' ? { rejectUnauthorized: false } : undefined,
+  }))
+
+/** Cria a tabela do documento (idempotente). */
+export async function ensureSchema(): Promise<void> {
+  await getPool().query(
+    `CREATE TABLE IF NOT EXISTS app_state (
+       id int PRIMARY KEY,
+       data jsonb NOT NULL,
+       updated_at timestamptz NOT NULL DEFAULT now()
+     )`,
+  )
+}
+
+/** Grava o documento bruto (usado pelo script de migração). id=1 é o banco ativo, id=2 o backup. */
+export async function pgSalvarBruto(doc: unknown): Promise<void> {
+  await ensureSchema()
+  const c = await getPool().connect()
+  try {
+    await c.query('BEGIN')
+    await c.query(
+      `INSERT INTO app_state (id, data) SELECT 2, data FROM app_state WHERE id = 1
+       ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data, updated_at = now()`,
+    )
+    await c.query(
+      `INSERT INTO app_state (id, data) VALUES (1, $1::jsonb)
+       ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data, updated_at = now()`,
+      [JSON.stringify(doc)],
+    )
+    await c.query('COMMIT')
+  } catch (e) {
+    await c.query('ROLLBACK').catch(() => {})
+    throw e
+  } finally {
+    c.release()
+  }
+}
+
+export async function pgLerBruto(): Promise<unknown | null> {
+  await ensureSchema()
+  const r = await getPool().query('SELECT data FROM app_state WHERE id = 1')
+  return r.rows[0]?.data ?? null
+}
+
+export const encerrar = async () => {
+  await pool?.end()
+  pool = null
+}
 
 const SESSION_MS = 30 * 24 * 3600 * 1000
 const MAX_SESSIONS_PER_USER = 20
@@ -450,8 +509,16 @@ function normalize(raw: any): DbFile {
   return out
 }
 
+async function loadPg(): Promise<DbFile> {
+  const raw = await pgLerBruto()
+  cache = raw ? normalize(raw) : emptyDb()
+  if (raw && /"objeto"\s*:/.test(JSON.stringify(raw))) await persist(cache)
+  return cache
+}
+
 async function load(): Promise<DbFile> {
   if (cache) return cache
+  if (DATABASE_URL) return loadPg()
   await fs.mkdir(DATA_DIR, { recursive: true })
   let limpar = false
   try {
@@ -479,6 +546,7 @@ async function load(): Promise<DbFile> {
 }
 
 async function persist(db: DbFile): Promise<void> {
+  if (DATABASE_URL) return pgSalvarBruto(db)
   await fs.mkdir(DATA_DIR, { recursive: true })
   // modo 0600: só o dono do arquivo lê (contém hashes de senha)
   await fs.writeFile(TMP_FILE, JSON.stringify(db, null, 2), { encoding: 'utf8', mode: 0o600 })
