@@ -241,6 +241,7 @@ export function EditalModal({
 }) {
   const [imps, setImps] = useState<EditalImpugnacao[]>(initial?.impugnacoes ?? [])
   const [listaImp, setListaImp] = useState(false)
+  const [perguntaImp, setPerguntaImp] = useState(false)
   const alternarImp = (id: string) => setImps((l) => (l.some((i) => i.id === id) ? l.filter((i) => i.id !== id) : [...l, { id, status: '' }]))
   const [f, setF] = useState({
     // ao cadastrar a categoria começa vazia (para ninguém esquecer); ao editar mantém a que já está salva
@@ -304,10 +305,22 @@ export function EditalModal({
     const valorHomologado = parseMoney(f.valorHomologado)
     if (valorHomologado === null) return setErr('Valor homologado inválido. Use só números, por exemplo 15000 ou 15.000,50.')
     setErr(null)
+    // cadastro novo com impugnações: pede o status de cada uma antes de gravar
+    if (!initial && imps.length > 0 && imps.some((i) => !i.status)) return setPerguntaImp(true)
+    await gravar(imps, valorGanho, valorHomologado)
+  }
+
+  const gravar = async (lista: EditalImpugnacao[], valorGanho: number, valorHomologado: number) => {
     setBusy(true)
-    const ok = await onSave({ ...f, impugnacoes: imps, valorGanho, valorHomologado, uf: f.uf.toUpperCase() })
+    const ok = await onSave({ ...f, impugnacoes: lista, valorGanho, valorHomologado, uf: f.uf.toUpperCase() })
     setBusy(false)
     if (ok) onClose()
+  }
+
+  const confirmarImp = async (lista: EditalImpugnacao[]) => {
+    setImps(lista)
+    setPerguntaImp(false)
+    await gravar(lista, parseMoney(f.valorGanho) ?? 0, parseMoney(f.valorHomologado) ?? 0)
   }
 
   const secao = (t: string) => (
@@ -518,6 +531,57 @@ export function EditalModal({
           )}
           <Actions onClose={onClose} busy={busy} submit="Salvar" />
         </div>
+      </form>
+      {perguntaImp && <ImpugStatusModal imps={imps} impugnacoes={impugnacoes} impugStatuses={impugStatuses} onConfirm={confirmarImp} onClose={() => setPerguntaImp(false)} />}
+    </Modal>
+  )
+}
+
+// ---------- Status das impugnações ao cadastrar o edital ----------
+function ImpugStatusModal({
+  imps,
+  impugnacoes,
+  impugStatuses,
+  onConfirm,
+  onClose,
+}: {
+  imps: EditalImpugnacao[]
+  impugnacoes: ImpugnacaoCfg[]
+  impugStatuses: ImpugStatusCfg[]
+  onConfirm: (lista: EditalImpugnacao[]) => void
+  onClose: () => void
+}) {
+  const [resp, setResp] = useState<Record<string, string>>(() => Object.fromEntries(imps.map((i) => [i.id, i.status])))
+  const [err, setErr] = useState<string | null>(null)
+  const submit = (e: FormEvent) => {
+    e.preventDefault()
+    if (imps.some((i) => !resp[i.id])) return setErr('Selecione o status de todas as impugnações.')
+    onConfirm(imps.map((i) => ({ ...i, status: resp[i.id] })))
+  }
+  return (
+    <Modal title="Status das impugnações" icon="gavel" onClose={onClose}>
+      <form onSubmit={submit} className="flex flex-col gap-space-md">
+        <p className="text-body-sm text-on-surface-variant">Este edital tem impugnações. Selecione o status de cada uma para concluir o cadastro.</p>
+        {imps.map((i) => {
+          const cfg = impugnacoes.find((x) => x.id === i.id)
+          return (
+            <div key={i.id} className="flex flex-col gap-1 rounded-lg bg-surface-container-low p-space-sm">
+              <span className="flex items-center gap-1.5 font-label-md text-label-md font-semibold">
+                <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: cfg?.cor ?? '#64748b' }} />
+                {cfg?.nome ?? i.id}
+              </span>
+              <select required className={input} value={resp[i.id] ?? ''} onChange={(e) => setResp((p) => ({ ...p, [i.id]: e.target.value }))}>
+                <option value="">Selecione…</option>
+                {impugStatuses.map((s) => (
+                  <option key={s.id} value={s.id}>{s.nome}</option>
+                ))}
+              </select>
+            </div>
+          )
+        })}
+        {impugStatuses.length === 0 && <span className="text-[12px] text-error">Nenhum status de impugnação cadastrado (Configurações → Status das impugnações).</span>}
+        {err && <div className="rounded-lg bg-error-container/50 px-3 py-2 text-body-sm font-medium text-on-error-container">{err}</div>}
+        <Actions onClose={onClose} busy={false} submit="Confirmar e salvar" />
       </form>
     </Modal>
   )
